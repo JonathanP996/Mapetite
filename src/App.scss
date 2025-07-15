@@ -1,0 +1,39 @@
+@import url("https://fonts.googleapis.com/css?family=Raleway:400,400i,700");
+
+$font-size: 20px;
+$frame-color: #000000;
+$size: 2.5em;
+$open-width: 18em;
+$open-padding: 0.3em 2.1em 0.3em 0.4em;
+$frame-thickness: 0.3em;
+$open-trans-time: 800ms;
+$close-trans-time: 150ms;
+
+.search-bar {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: 'Raleway', sans-serif;
+  font-size: $font-size;
+  font-weight: bold;
+  width: $size;
+  height: $size;
+  padding: $open-padding;
+  border: solid $frame-thickness $frame-color;
+  border-radius: $size;
+  box-sizing: border-box;
+  transition: width $open-trans-time cubic-bezier(0.68, -0.55, 0.27, 1.55) $close-trans-time;
+
+  position: absolute;
+  top: 20px;
+  left: 4000%;
+  transform: translateX(-50%);
+  z-index: 999;
+
+  &:focus {
+    outline: none;
+    width: $open-width;
+    transition: width $open-trans-time cubic-bezier(0.68, -0.55, 0.27, 1.55);
+  }
+}
