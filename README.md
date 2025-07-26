@@ -1,70 +1,134 @@
-# Getting Started with Create React App
+⸻
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+Mapetite - Interactive Map-based Food Discovery App
 
-## Available Scripts
+Mapetite is a React-based application that helps users find the best food spots along their travel routes, leveraging Google Maps API and Leaflet. It integrates features like real-time geolocation, route planning, and autocomplete destination search to provide a seamless user experience when discovering nearby food places.
 
-In the project directory, you can run:
+⸻
 
-### `npm start`
+Table of Contents
+	1.	Project Overview
+	2.	Features
+	3.	Technologies Used
+	4.	Getting Started
+	5.	Installation
+	6.	Usage
+	7.	Screenshots
+	8.	Contributing
+	9.	License
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+⸻
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+Project Overview
 
-### `npm test`
+Mapetite is designed for travelers who want to optimize their food stops along their routes. It allows users to:
+	•	Search for food places along a custom-defined route.
+	•	Get real-time recommendations for restaurants or cafes that are close to their path.
+	•	Use Google’s Autocomplete API for easy destination searches and Leaflet.js for interactive maps.
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+⸻
 
-### `npm run build`
+Features
+	•	Geolocation Support: Fetches the user’s current location using the browser’s geolocation API.
+	•	Dynamic Search: Uses Google Places API to search for food destinations along a travel route with autocomplete support.
+	•	Polyline Path: Optimizes the user’s travel route by drawing polylines using Google’s Directions API to show the best route with food places on the way.
+	•	Custom Map UI: Interactive map using Leaflet.js, complete with custom markers and popups for food places, user location, and destination.
+	•	Responsive Design: Fully responsive design that works seamlessly on desktops, tablets, and smartphones.
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+⸻
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+Technologies Used
+	•	React: For building the dynamic, component-based UI.
+	•	Leaflet.js: Open-source JavaScript library for mobile-friendly interactive maps.
+	•	Google Maps API: Provides geolocation services, autocomplete destination search, and route planning features.
+	•	Google Places API: Fetches data for nearby food places, such as restaurants, cafes, and bars.
+	•	React Router: Enables navigation between different views such as the map, settings, and details pages.
+	•	SCSS: For custom styling, ensuring a responsive and visually appealing user interface.
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+⸻
 
-### `npm run eject`
+Getting Started
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+Prerequisites
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+To run Mapetite locally, you’ll need:
+	•	Node.js: Version 14.x or later.
+	•	npm or yarn for managing dependencies.
+	•	Google Maps API Key: You’ll need to create a project in the Google Cloud Console and enable the Maps JavaScript API, Places API, and Directions API to use the map and autocomplete features.
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+⸻
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+Installation
 
-## Learn More
+Follow these steps to get a local copy of the project up and running:
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+1. Clone the repository:
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+git clone https://github.com/your-username/mappetite.git
 
-### Code Splitting
+2. Install dependencies:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+If you’re using npm:
 
-### Analyzing the Bundle Size
+cd mappetite
+npm install
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+Or if you’re using yarn:
 
-### Making a Progressive Web App
+cd mappetite
+yarn install
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+3. Set up your Google Maps API Key:
 
-### Advanced Configuration
+Create a .env file in the root of the project and add your Google Maps API Key like this:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+REACT_APP_GOOGLE_MAPS_API_KEY=your_google_maps_api_key_here
 
-### Deployment
+Make sure to replace your_google_maps_api_key_here with your actual API key.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+⸻
 
-### `npm run build` fails to minify
+Usage
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+1. Run the development server:
+
+After installation, start the project locally by running:
+
+npm start
+
+or
+
+yarn start
+
+This will start the development server and open the app in your browser at http://localhost:3000.
+
+⸻
+
+Screenshots
+
+Here are some screenshots of the app:
+
+Example of the interactive map showing food spots along the route.
+
+Real-time autocomplete search bar for destinations.
+
+⸻
+
+Contributing
+
+We welcome contributions to Mapetite! Here’s how you can help:
+	1.	Fork the repository.
+	2.	Create your feature branch (git checkout -b feature-name).
+	3.	Commit your changes (git commit -m 'Add new feature').
+	4.	Push to your branch (git push origin feature-name).
+	5.	Open a pull request.
+
+Please make sure to follow the coding style used in the project.
+
+⸻
+
+License
+
+This project is licensed under the MIT License – see the LICENSE file for details.
+
+⸻
