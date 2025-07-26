@@ -196,16 +196,34 @@ function App() {
 
   return (
     <div style={{ height: '100vh', width: '100vw' }}>
-      <div style={{ padding: '10px', background: 'white', zIndex: 999, position: 'absolute' }}>
-        <input
-          ref={inputRef}
-          type="text"
-          value={destinationQuery}
-          onChange={(e) => setDestinationQuery(e.target.value)}
-          placeholder="Enter a destination..."
-          className="search-bar"
-        />
-      </div>
+<div style={{
+  top: '20px',
+  left: '50%',
+  transform: 'translateX(-50%)',
+  position: 'absolute',
+  zIndex: 1000,
+  background: 'white',
+  padding: '8px',
+  borderRadius: '8px',
+  boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
+  width: '300px',
+}}>
+  <input
+    ref={inputRef}
+    type="text"
+    value={destinationQuery}
+    onChange={(e) => setDestinationQuery(e.target.value)}
+    placeholder="Enter a destination..."
+    className="search-box"
+    style={{
+      width: '100%',
+      padding: '10px',
+      border: '1px solid #ccc',
+      borderRadius: '6px',
+      fontSize: '16px',
+    }}
+  />
+</div>
 
       <div style={{ position: 'absolute', top: '10px', right: '20px', fontSize: '50px', fontWeight: 'bold', fontFamily: 'DM Sans, sans-serif', zIndex: 1000 }}>
         Mapetite

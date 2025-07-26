@@ -1,39 +1,141 @@
-@import url("https://fonts.googleapis.com/css?family=Raleway:400,400i,700");
-
 $font-size: 20px;
 $frame-color: #000000;
 $size: 2.5em;
 $open-width: 18em;
 $open-padding: 0.3em 2.1em 0.3em 0.4em;
 $frame-thickness: 0.3em;
+$handle-height: 1.4em;
 $open-trans-time: 800ms;
 $close-trans-time: 150ms;
 
-.search-bar {
-  position: fixed;
-  top: 20px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-family: 'Raleway', sans-serif;
+@import url("https://fonts.googleapis.com/css?family=Raleway:400,400i,700");
+
+html, body {
+  font-family: Raleway, sans-serif;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+}
+
+body {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+////////////////////////////////////////////////////////////////////////////////
+//                                 SEARCH BOX                                 //
+////////////////////////////////////////////////////////////////////////////////
+
+.search-box {
   font-size: $font-size;
-  font-weight: bold;
-  width: $size;
-  height: $size;
-  padding: $open-padding;
   border: solid $frame-thickness $frame-color;
-  border-radius: $size;
-  box-sizing: border-box;
-  transition: width $open-trans-time cubic-bezier(0.68, -0.55, 0.27, 1.55) $close-trans-time;
-
+  display: inline-block;
   position: absolute;
-  top: 20px;
-  left: 4000%;
-  transform: translateX(-50%);
-  z-index: 999;
+  top: 10px;
+  right: 20px;
+  border-radius: $size;
+  padding: 0;
+  transition: all 0.3s ease;
+  
+  input[type="text"] {
+    font-family: inherit;
+    font-weight: bold;
+    width: $size;
+    height: $size;
+    padding: $open-padding;
+    border: none;
+    box-sizing: border-box;
+    border-radius: $size;
+    transition: width $open-trans-time cubic-bezier(0.68, -0.55, 0.27, 1.55) $close-trans-time;
 
-  &:focus {
-    outline: none;
-    width: $open-width;
-    transition: width $open-trans-time cubic-bezier(0.68, -0.55, 0.27, 1.55);
+    &:focus {
+      outline: none;
+    }
+
+    &:focus,
+    &:not(:placeholder-shown) {
+      width: $open-width;
+      transition: width $open-trans-time cubic-bezier(0.68, -0.55, 0.27, 1.55);
+      
+      + button[type="reset"] {
+        transform: rotate(-45deg) translateY(0);
+        transition: transform $close-trans-time ease-out $open-trans-time;
+      }
+
+      + button[type="reset"]:after {
+        opacity: 1;
+        transition: 
+          top $close-trans-time ease-out ($open-trans-time + $close-trans-time),
+          right $close-trans-time ease-out ($open-trans-time + $close-trans-time),
+          opacity $close-trans-time ease ($open-trans-time + $close-trans-time);
+      }
+    }
   }
+
+  button[type="reset"] {
+    background-color: transparent;
+    width: $handle-height;
+    height: $handle-height;
+    border: 0;
+    padding: 0;
+    outline: 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    position: absolute;
+    top: 1.25em;
+    right: 1.25em;
+    transform: rotate(-45deg) translateY($size - $frame-thickness);
+    transition: transform $close-trans-time ease-out $close-trans-time;
+
+    &:before, &:after {
+      content: "";
+      background-color: $frame-color;
+      width: $frame-thickness;
+      height: $handle-height;
+      position: absolute;
+    }
+
+    &:after {
+      transform: rotate(90deg);
+      opacity: 0;
+      transition: transform $close-trans-time ease-out, opacity $close-trans-time ease-out;
+    }
+  }
+
+  // Show when input is focused or has a value
+  &.focused {
+    input[type="text"] {
+      width: $open-width;
+    }
+  }
+}
+
+// Fullscreen container for map and search bar
+.map-container-fullscreen {
+  position: relative;
+  height: 100vh;
+  width: 100vw;
+}
+
+// Logo styling (positioned in the top-left)
+.logo-overlay {
+  position: absolute;
+  top: 10px;
+  left: 20px;
+  font-size: 50px;
+  font-weight: bold;
+  font-family: 'DM Sans', sans-serif;
+  z-index: 1000;
+}
+
+// Map container styling
+.map-container {
+  height: 100%;
+  width: 100%;
+  z-index: 1; // Make sure the map is visible below the search box and logo
 }
