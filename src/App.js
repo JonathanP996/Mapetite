@@ -253,34 +253,55 @@ function App() {
 
   return (
     <div style={{ height: '100vh', width: '100vw', display: 'flex' }}>
-<div style={{
-  top: '20px',
-  left: '50%',
-  transform: 'translateX(-50%)',
-  position: 'absolute',
-  zIndex: 1000,
-  background: 'white',
-  padding: '8px',
-  borderRadius: '8px',
-  boxShadow: '0 2px 6px rgba(0,0,0,0.2)',
-  width: '300px',
-}}>
-  <input
-    ref={inputRef}
-    type="text"
-    value={destinationQuery}
-    onChange={(e) => setDestinationQuery(e.target.value)}
-    placeholder="Enter a destination..."
-    className="search-box"
-    style={{
-      width: '100%',
-      padding: '10px',
-      border: '1px solid #ccc',
-      borderRadius: '6px',
-      fontSize: '16px',
-    }}
-  />
-</div>
+      <div className="fancy-search">
+        <div className="fs-container">
+          <svg viewBox="0 0 420 60" xmlns="http://www.w3.org/2000/svg">
+            <rect className="bar" />
+            <g className="magnifier">
+              <circle className="glass" />
+              <line className="handle" x1="32" y1="32" x2="44" y2="44"></line>
+            </g>
+            <g className="sparks">
+              <circle className="spark"/>
+              <circle className="spark"/>
+              <circle className="spark"/>
+            </g>
+            <g className="burst pattern-one">
+              <circle className="particle circle"/>
+              <path className="particle triangle"/>
+              <circle className="particle circle"/>
+              <path className="particle plus"/>
+              <rect className="particle rect"/>
+              <path className="particle triangle"/>
+            </g>
+            <g className="burst pattern-two">
+              <path className="particle plus"/>
+              <circle className="particle circle"/>
+              <path className="particle triangle"/>
+              <rect className="particle rect"/>
+              <circle className="particle circle"/>
+              <path className="particle plus"/>
+            </g>
+            <g className="burst pattern-three">
+              <circle className="particle circle"/>
+              <rect className="particle rect"/>
+              <path className="particle plus"/>
+              <path className="particle triangle"/>
+              <rect className="particle rect"/>
+              <path className="particle plus"/>
+            </g>
+          </svg>
+          <input
+            ref={inputRef}
+            type="search"
+            name="q"
+            aria-label="Search for destination"
+            value={destinationQuery}
+            onChange={(e) => setDestinationQuery(e.target.value)}
+            placeholder="Enter a destination..."
+          />
+        </div>
+      </div>
 
       <div style={{ position: 'absolute', top: '10px', right: '20px', fontSize: '50px', fontWeight: 'bold', fontFamily: 'DM Sans, sans-serif', zIndex: 1000 }}>
         Mapetite

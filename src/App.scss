@@ -1,3 +1,117 @@
+/* Fancy search bar styles (scoped) */
+.fancy-search {
+  position: absolute;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1000;
+  width: 420px;
+  height: 60px;
+}
+
+.fancy-search .fs-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.fancy-search input[type="search"] {
+  position: absolute;
+  inset: 0;
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 100%;
+  background: none;
+  padding: 0 30px 0 60px;
+  border: none;
+  border-radius: 100px;
+  font: 24px/1 system-ui, sans-serif;
+  outline-offset: -8px;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+}
+
+.fancy-search svg {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  color: hsl(215, 100%, 50%);
+  fill: none;
+  stroke: currentColor;
+}
+
+.fancy-search .bar {
+  width: 100%;
+  height: 100%;
+  ry: 50%;
+  stroke-width: 10;
+  animation: fs-bar-in 900ms 600ms both;
+}
+
+@keyframes fs-bar-in {
+  0% { stroke-dasharray: 0 180 0 226 0 405 0 0 }
+  100% { stroke-dasharray: 0 0 181 0 227 0 405 0 }
+}
+
+.fancy-search .magnifier { animation: fs-magnifier-in 600ms 1200ms both; transform-box: fill-box; }
+@keyframes fs-magnifier-in {
+  0% { transform: translate(20px, 8px) rotate(-45deg) scale(0.01, 0.01); }
+  50% { transform: translate(-4px, 8px) rotate(-45deg); }
+  100% { transform: translate(0px, 0px) rotate(0deg); }
+}
+.fancy-search .magnifier .glass { cx: 27; cy: 27; r: 8; stroke-width: 3; }
+.fancy-search .magnifier .handle { x1: 32; y1: 32; x2: 44; y2: 44; stroke-width: 3; }
+
+.fancy-search .spark { fill: currentColor; stroke: none; r: 15; }
+.fancy-search .spark:nth-child(1) { animation: fs-spark-radius 2.03s 1.2s both, fs-spark-one 2s 1.2s both; }
+.fancy-search .spark:nth-child(2) { animation: fs-spark-radius 2.03s 1.2s both, fs-spark-two 2.03s 1.2s both; }
+.fancy-search .spark:nth-child(3) { animation: fs-spark-radius 2.05s 1.2s both, fs-spark-three 2.03s 1.2s both; }
+
+@keyframes fs-spark-radius {
+  0% { r: 0; animation-timing-function: cubic-bezier(0, 0.3, 0, 1.57) }
+  30% { r: 15; animation-timing-function: cubic-bezier(1, -0.39, 0.68, 1.04) }
+  95% { r: 8 }
+  99% { r: 10 }
+  99.99% { r: 7 }
+  100% { r: 0 }
+}
+@keyframes fs-spark-one {
+  0% { transform: translate(-20%, 50%) }
+  20% { transform: rotate(-0deg) translate(0%, -50%) }
+  80% { transform: rotate(-230deg) translateX(-20%) rotate(-100deg) translateX(15%) }
+  100% { transform: rotate(-360deg) translate(30px, 100%) }
+}
+@keyframes fs-spark-two {
+  0% { transform: translate(120%, 50%) rotate(-70deg) translateY(0%) }
+  20% { transform: translate(90%, -80%) rotate(60deg) translateY(-80%) }
+  40% { transform: translate(110%, -50%) rotate(-30deg) translateY(-120%) }
+  70% { transform: translate(100%, -50%) rotate(120deg) translateY(-100%) }
+  80% { transform: translate(95%, 50%) rotate(80deg) translateY(-150%) }
+  100% { transform: translate(100%, 50%) rotate(120deg) translateY(0%) }
+}
+@keyframes fs-spark-three {
+  0% { transform: translate(50%, 100%) rotate(-40deg) translateX(0%) }
+  30% { transform: translate(40%, 70%) rotate(20deg) translateX(20%) }
+  40% { transform: translate(65%, 20%) rotate(-50deg) translateX(15%) }
+  60% { transform: translate(60%, -40%) rotate(-50deg) translateX(20%) }
+  70% { transform: translate(70%, -0%) rotate(-180deg) translateX(20%) }
+  100% { transform: translate(70%, -0%) rotate(-360deg) translateX(0%) rotate(180deg) translateX(20%) }
+}
+
+.fancy-search .burst { stroke-width: 3; }
+.fancy-search .burst :nth-child(2n) { color: #ff783e }
+.fancy-search .burst :nth-child(3n) { color: #ffab00 }
+.fancy-search .burst :nth-child(4n) { color: #55e214 }
+.fancy-search .burst :nth-child(5n) { color: #82d9f5 }
+.fancy-search .circle { r: 6; }
+.fancy-search .rect { width: 10px; height: 10px; }
+.fancy-search .triangle { d: path("M0,-6 L7,6 L-7,6 Z"); stroke-linejoin: round; }
+.fancy-search .plus { d: path("M0,-5 L0,5 M-5,0L 5,0"); stroke-linecap: round; }
+
+.fancy-search .pattern-one { transform: translate(30px, 100%) rotate(150deg); }
+.fancy-search .pattern-two { transform: translate(50%, 0%) rotate(-20deg); }
+.fancy-search .pattern-three { transform: translate(100%, 50%) rotate(75deg); }
 $font-size: 20px;
 $frame-color: #000000;
 $size: 2.5em;
