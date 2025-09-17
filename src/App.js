@@ -92,6 +92,53 @@ function App() {
     return minKm;
   };
 
+  // Compute along-route distance (km) for the closest projection of a point onto the route
+  const computeAlongRouteDistanceKm = (pointLat, pointLng, pathLatLngs) => {
+    if (!pathLatLngs || pathLatLngs.length < 2) return { alongKm: 0, offsetKm: Infinity };
+    // Build prefix distances once per call; small path so okay to recompute here
+    const prefixKm = [0];
+    for (let i = 0; i < pathLatLngs.length - 1; i++) {
+      const [aLat, aLng] = pathLatLngs[i];
+      const [bLat, bLng] = pathLatLngs[i + 1];
+      prefixKm.push(prefixKm[i] + haversineDistanceKm(aLat, aLng, bLat, bLng));
+    }
+
+    let best = { alongKm: 0, offsetKm: Infinity };
+    for (let i = 0; i < pathLatLngs.length - 1; i++) {
+      const [lat1, lon1] = pathLatLngs[i];
+      const [lat2, lon2] = pathLatLngs[i + 1];
+
+      const midLat = (lat1 + lat2) / 2;
+      const x1 = toRadians(lon1) * Math.cos(toRadians(midLat));
+      const y1 = toRadians(lat1);
+      const x2 = toRadians(lon2) * Math.cos(toRadians(midLat));
+      const y2 = toRadians(lat2);
+      const xp = toRadians(pointLng) * Math.cos(toRadians(midLat));
+      const yp = toRadians(pointLat);
+
+      const dx = x2 - x1;
+      const dy = y2 - y1;
+      const segLen2 = dx * dx + dy * dy;
+      let t = 0;
+      if (segLen2 > 0) {
+        t = ((xp - x1) * dx + (yp - y1) * dy) / segLen2;
+        t = Math.max(0, Math.min(1, t));
+      }
+      const xProj = x1 + t * dx;
+      const yProj = y1 + t * dy;
+      const approxLon = xProj / Math.cos(toRadians(midLat)) * (180 / Math.PI);
+      const approxLat = yProj * (180 / Math.PI);
+      const offsetKm = haversineDistanceKm(pointLat, pointLng, approxLat, approxLon);
+
+      if (offsetKm < best.offsetKm) {
+        const segKm = prefixKm[i + 1] - prefixKm[i];
+        const alongKm = prefixKm[i] + t * segKm;
+        best = { alongKm, offsetKm };
+      }
+    }
+    return best;
+  };
+
   useEffect(() => {
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
@@ -149,6 +196,13 @@ function App() {
             console.log('✅ Base route response:', mainRouteRes.data);
             mainRoute = mainRouteRes.data.routes[0];
             console.log('📊 Main route:', mainRoute);
+            // Immediately draw the base route polyline before searching restaurants
+            if (mainRoute?.overview_polyline?.points) {
+              const baseDecoded = polyline.decode(mainRoute.overview_polyline.points);
+              const baseLatLngs = baseDecoded.map(([lat, lng]) => [lat, lng]);
+              setBestRouteCoords(baseLatLngs);
+              console.log('🖊️ Drew base route polyline');
+            }
           } catch (err) {
             console.error("❌ Failed to fetch base route:", err);
             return;
@@ -159,6 +213,10 @@ function App() {
           console.log('🗺️ Decoded main path points:', mainPath.length);
           const CORRIDOR_MILES = 3; // requested corridor width
           const CORRIDOR_KM = CORRIDOR_MILES * 1.60934;
+
+          // Reset prior results while we compute options
+          setPlaces([]);
+          setDetourOptions([]);
 
           // Step 3: Sample along the route and fetch places near those samples
           const sampleEveryKm = 5; // ~5km sampling
@@ -180,7 +238,8 @@ function App() {
           // Fetch places per sample point (radius ~ 4.8km = 3mi)
           const dedupeMap = new Map();
           for (const [sLat, sLng] of sampledCoords) {
-            const url = `http://localhost:3001/places?lat=${sLat}&lng=${sLng}&radius=${Math.round(CORRIDOR_KM * 1000)}`;
+            // Prefer rankby=distance to get places nearest to the path sample without sticking to a static radius
+            const url = `http://localhost:3001/places?lat=${sLat}&lng=${sLng}&rankby=distance&type=restaurant`;
             console.log('🍕 Fetching places near sample:', url);
             try {
               const resp = await axios.get(url);
@@ -213,7 +272,42 @@ function App() {
           // Step 4: Determine fastest detour routes via corridor places
           console.log('⏱️ Finding fastest detour routes...');
           const MAX_DETOURS = 30; // cap to reduce API calls
-          const candidates = onRouteFoodPlaces.slice(0, MAX_DETOURS);
+          // Distribute candidates along the route: bin by along-route distance and pick closest-to-route per bin
+          const lastPoint = mainPath[mainPath.length - 1];
+          // Total route length (km)
+          let totalKm = 0;
+          for (let i = 0; i < mainPath.length - 1; i++) {
+            const [aLat, aLng] = mainPath[i];
+            const [bLat, bLng] = mainPath[i + 1];
+            totalKm += haversineDistanceKm(aLat, aLng, bLat, bLng);
+          }
+          const binCount = MAX_DETOURS;
+          const binSizeKm = Math.max(0.001, totalKm / binCount);
+          const bins = new Array(binCount).fill(null);
+
+          for (const place of onRouteFoodPlaces) {
+            const lat = place.geometry?.location?.lat;
+            const lng = place.geometry?.location?.lng;
+            if (!lat || !lng) continue;
+            const { alongKm, offsetKm } = computeAlongRouteDistanceKm(lat, lng, mainPath);
+            const binIdx = Math.min(binCount - 1, Math.max(0, Math.floor(alongKm / binSizeKm)));
+            const current = bins[binIdx];
+            if (!current || offsetKm < current.offsetKm) {
+              bins[binIdx] = { place, alongKm, offsetKm };
+            }
+          }
+          let candidates = bins.filter(Boolean).map(b => b.place);
+          // If we still have too many (rare), trim by smallest offset
+          if (candidates.length > MAX_DETOURS) {
+            candidates = candidates
+              .map(p => {
+                const lat = p.geometry?.location?.lat; const lng = p.geometry?.location?.lng;
+                const m = computeAlongRouteDistanceKm(lat, lng, mainPath); return { p, off: m.offsetKm };
+              })
+              .sort((a,b)=>a.off-b.off)
+              .slice(0, MAX_DETOURS)
+              .map(x=>x.p);
+          }
           const options = [];
 
           for (const place of candidates) {
