@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline } from 'react-leaflet';
-import L from 'leaflet';
 import axios from 'axios';
 import polyline from '@mapbox/polyline';
-import 'leaflet/dist/leaflet.css';
+import GoogleMap from './GoogleMap';
 import './App.scss';
 
 
@@ -18,28 +16,6 @@ function App() {
   const inputRef = useRef(null);
   const mapRef = useRef(null);
   const markerRefs = useRef({});
-
-  // Custom pizza icon
-  const pizzaIcon = new L.Icon({
-    iconUrl: 'https://cdn-icons-png.flaticon.com/512/1046/1046784.png', // pizza slice icon
-    iconSize: [32, 32],  // Size of the pizza icon
-    iconAnchor: [16, 32],  // Point of the icon that will sit on the marker's position
-    popupAnchor: [0, -32],  // Position of the popup relative to the marker
-  });
-
-  const locationIcon = new L.Icon({
-    iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684908.png', // blue marker for current location
-    iconSize: [32, 32],
-    iconAnchor: [16, 32],
-    popupAnchor: [0, -32],
-  });
-
-  const destinationIcon = new L.Icon({
-    iconUrl: 'https://cdn-icons-png.flaticon.com/512/684/684908.png', // red pin (you can replace with a more destination-style icon)
-    iconSize: [32, 32],
-    iconAnchor: [16, 32],
-    popupAnchor: [0, -32],
-  });
 
   // Distance helpers (WGS84 haversine + point-to-segment distance)
   const toRadians = (deg) => (deg * Math.PI) / 180;
@@ -416,12 +392,10 @@ function App() {
                  const lat = opt.place.geometry?.location?.lat;
                  const lng = opt.place.geometry?.location?.lng;
                  if (lat && lng && mapRef.current) {
-                   mapRef.current.flyTo([lat, lng], 16, { duration: 0.8 });
+                   mapRef.current.panTo({ lat, lng });
+                   mapRef.current.setZoom(16);
                  }
-                 const marker = markerRefs.current[opt.place.place_id];
-                 if (marker && marker.openPopup) {
-                   marker.openPopup();
-                 }
+                 // Google Maps markers do not have openPopup by default
                }}>
             <div style={{ fontWeight: 600 }}>{idx + 1}. {opt.place.name}</div>
             <div style={{ color: '#555', fontSize: '12px' }}>{opt.place.vicinity || opt.place.formatted_address || ''}</div>
@@ -431,74 +405,26 @@ function App() {
       </div>
 
       {position ? (
-        <MapContainer center={position} zoom={15} style={{ height: '100%', width: '100%' }} whenCreated={(map) => { mapRef.current = map; }}>
-          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-
-          {/* Marker for your location */}
-          <Marker position={position} icon={locationIcon}>
-            <Popup>
-              <strong>You’re here 📍</strong>
-              {position && (
-                <img
-                  src={`https://maps.googleapis.com/maps/api/staticmap?center=${position[0]},${position[1]}&zoom=15&size=200x200&markers=color:blue%7C${position[0]},${position[1]}&key=${process.env.REACT_APP_GOOGLE_BROWSER_KEY}`}
-                  alt="Your location"
-                  style={{ width: '100%', marginTop: '8px', borderRadius: '8px' }}
-                />
-              )}
-            </Popup>
-          </Marker>
-
-          {/* Marker for destination */}
-          {destination && (
-            <Marker position={destination} icon={destinationIcon}>
-              <Popup>
-                <strong>Destination 📍</strong>
-                {destination && (
-                  <img
-                    src={`https://maps.googleapis.com/maps/api/staticmap?center=${destination[0]},${destination[1]}&zoom=15&size=200x200&markers=color:red%7C${destination[0]},${destination[1]}&key=${process.env.REACT_APP_GOOGLE_BROWSER_KEY}`}
-                    alt="Destination"
-                    style={{ width: '100%', marginTop: '8px', borderRadius: '8px', color: "blue"}}
-                  />
-                )}
-              </Popup>
-            </Marker>
-          )}
-
-          {/* Fallback popup if no places found */}
-          {/* No default places before destination; optional hint could go here */}
-
-          {/* Food places */}
-          {destination && places.map((place, index) => {
-            const lat = place.geometry?.location?.lat;
-            const lng = place.geometry?.location?.lng;
-            if (!lat || !lng) return null;
-
-            return (
-              <Marker
-                key={place.place_id || index}
-                position={[lat, lng]}
-                icon={pizzaIcon}
-                ref={(el) => { if (el && place.place_id) { markerRefs.current[place.place_id] = el; } }}
-              >
-                <Popup>
-                  <strong>{place.name}</strong><br />
-                  {place.vicinity || 'No address available'}
-                  {place.photos && place.photos.length > 0 && (
-                    <img
-                      src={`https://maps.googleapis.com/maps/api/place/photo?maxwidth=200&photoreference=${place.photos[0].photo_reference}&key=${process.env.REACT_APP_GOOGLE_BROWSER_KEY}`}
-                      alt="Food place"
-                      style={{ width: '100%', marginTop: '8px', borderRadius: '8px' }}
-                    />
-                  )}
-                </Popup>
-              </Marker>
-            );
-          })}
-
-          {bestRouteCoords.length > 0 && (
-            <Polyline positions={bestRouteCoords} color="blue" />
-          )}
-        </MapContainer>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <GoogleMap
+            position={position}
+            destination={destination}
+            places={places}
+            bestRouteCoords={bestRouteCoords}
+            onPlaceClick={(place) => {
+              const lat = place.geometry?.location?.lat;
+              const lng = place.geometry?.location?.lng;
+              if (lat && lng && mapRef.current) {
+                mapRef.current.panTo({ lat, lng });
+                mapRef.current.setZoom(16);
+              }
+              const marker = markerRefs.current[place.place_id];
+              // Popup handling differs in Google Maps; skipping popup toggle for now
+            }}
+            mapRef={mapRef}
+            markerRefs={markerRefs}
+          />
+        </div>
       ) : (
         <p>Loading map...</p>
       )}
