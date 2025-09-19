@@ -19,8 +19,12 @@ const GoogleMap = ({
 
     const google = window.google;
 
+    const center = Array.isArray(position) && Number.isFinite(position[0]) && Number.isFinite(position[1])
+      ? { lat: position[0], lng: position[1] }
+      : { lat: 0, lng: 0 };
+
     const map = new google.maps.Map(mapContainer.current, {
-      center: position || { lat: 0, lng: 0 },
+      center,
       zoom: 15,
       mapTypeControl: false,
       fullscreenControl: false,
@@ -38,8 +42,10 @@ const GoogleMap = ({
   // Keep center in sync when position changes
   useEffect(() => {
     const map = localMapRef.current;
-    if (!map || !position) return;
-    map.setCenter({ lat: position[0], lng: position[1] });
+    if (!map || !Array.isArray(position)) return;
+    const [lat, lng] = position;
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+    map.setCenter({ lat, lng });
   }, [position]);
 
   // Draw or update route polyline
@@ -53,7 +59,10 @@ const GoogleMap = ({
     }
 
     if (bestRouteCoords && bestRouteCoords.length > 1) {
-      const path = bestRouteCoords.map(([lat, lng]) => ({ lat, lng }));
+      const path = bestRouteCoords
+        .filter(arr => Array.isArray(arr) && Number.isFinite(arr[0]) && Number.isFinite(arr[1]))
+        .map(([lat, lng]) => ({ lat, lng }));
+      if (path.length < 2) return;
       routePolylineRef.current = new window.google.maps.Polyline({
         path,
         strokeColor: '#3b82f6',
@@ -83,7 +92,7 @@ const GoogleMap = ({
     (places || []).forEach((place) => {
       const lat = place.geometry?.location?.lat;
       const lng = place.geometry?.location?.lng;
-      if (!lat || !lng) return;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
 
       const marker = new window.google.maps.Marker({
         position: { lat, lng },
@@ -92,7 +101,9 @@ const GoogleMap = ({
       });
 
       if (onPlaceClick) {
-        marker.addListener('click', () => onPlaceClick(place));
+        marker.addListener('click', () => {
+          onPlaceClick(place);
+        });
       }
 
       if (place.place_id) {
@@ -108,7 +119,7 @@ const GoogleMap = ({
 
     // Current position marker
     let posMarker = null;
-    if (position) {
+    if (Array.isArray(position) && Number.isFinite(position[0]) && Number.isFinite(position[1])) {
       posMarker = new window.google.maps.Marker({
         position: { lat: position[0], lng: position[1] },
         map,
@@ -125,7 +136,7 @@ const GoogleMap = ({
 
     // Destination marker
     let destMarker = null;
-    if (destination) {
+    if (Array.isArray(destination) && Number.isFinite(destination[0]) && Number.isFinite(destination[1])) {
       destMarker = new window.google.maps.Marker({
         position: { lat: destination[0], lng: destination[1] },
         map,
