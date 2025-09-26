@@ -3,6 +3,8 @@ import axios from 'axios';
 import polyline from '@mapbox/polyline';
 import GoogleMap from './GoogleMap';
 import './App.scss';
+// Dynamic API base: production -> '/api' (Vercel), development -> 'http://localhost:3001'
+const API_BASE = process.env.NODE_ENV === 'production' ? '/api' : 'http://localhost:3001';
 
 
 function App() {
@@ -232,7 +234,7 @@ function App() {
           // IMPORTANT: Our backend expects 'waypoint' to be a place_id and will
           // construct &waypoints=place_id:... when calling Google. Passing lat,lng
           // here causes Google to ignore the stop and returns base time (0 added).
-          const routeUrl = `http://localhost:3001/directions?origin=${position[0]},${position[1]}&destination=${destination[0]},${destination[1]}&waypoint=${place.place_id}`;
+          const routeUrl = `${API_BASE}/directions?origin=${position[0]},${position[1]}&destination=${destination[0]},${destination[1]}&waypoint=${place.place_id}`;
           const res = await axios.get(routeUrl);
           const route = res.data.routes?.[0];
           if (!route) continue;
@@ -410,7 +412,7 @@ function App() {
           setLoadingDetours({ active: true, total: 0, done: 0, etaSec: null, label: 'Calculating route...', found: 0 });
 
           // Step 1: Get base route
-          const mainRouteUrl = `http://localhost:3001/directions?origin=${position[0]},${position[1]}&destination=${loc.lat()},${loc.lng()}`;
+          const mainRouteUrl = `${API_BASE}/directions?origin=${position[0]},${position[1]}&destination=${loc.lat()},${loc.lng()}`;
           console.log('🛣️ Fetching base route:', mainRouteUrl);
           let mainRoute;
           let baseTimeSec = 0; // baseline (direct) route duration in seconds
@@ -480,7 +482,7 @@ function App() {
             if (cuisine) parts.push(`keyword=${encodeURIComponent(cuisine)}`);
             if (minPrice !== '') parts.push(`minprice=${minPrice}`);
             if (maxPrice !== '') parts.push(`maxprice=${maxPrice}`);
-            const url = `http://localhost:3001/places?${parts.join('&')}`;
+            const url = `${API_BASE}/places?${parts.join('&')}`;
             console.log('🍕 Fetching places near sample:', url);
             try {
               const resp = await axios.get(url);
@@ -545,7 +547,7 @@ function App() {
           // Concurrency: stream results in batches so UI updates immediately
           const CONCURRENCY = 5;
           const fetchOption = async (place) => {
-            const url = `http://localhost:3001/directions?origin=${position[0]},${position[1]}&destination=${loc.lat()},${loc.lng()}&waypoint=${place.place_id}`;
+            const url = `${API_BASE}/directions?origin=${position[0]},${position[1]}&destination=${loc.lat()},${loc.lng()}&waypoint=${place.place_id}`;
             console.log(`🛣️ Checking route via "${place.name}":`, url);
             try {
               const res = await axios.get(url);
