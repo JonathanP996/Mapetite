@@ -1,6 +1,6 @@
 ⸻
 
-Mapetite - Interactive Map-based Food Discovery App
+**Mapetite - Interactive Map-based Food Discovery App**
 
 Mapetite is a React-based application that helps users find the best food spots along their travel routes, leveraging Google Maps API and Leaflet. It integrates features like real-time geolocation, route planning, and autocomplete destination search to provide a seamless user experience when discovering nearby food places.
 
