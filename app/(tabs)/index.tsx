@@ -1,98 +1,242 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import * as Location from 'expo-location';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import MapView, { Marker, Polyline } from 'react-native-maps';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+export default function App() {
+  // for just normal searching before hitting enter
+  const [search, setSearch] = useState('');
+  // for the loading spinner
+  const [loading, setLoading] = useState(false);
 
-export default function HomeScreen() {
+  const GEOAPIFY_KEY = process.env.EXPO_PUBLIC_GEOAPIFY_KEY;
+  
+  // For autocomplete suggestions
+  const [suggestions, setSuggestions] = useState<any[]>([]);
+
+  // for the route
+  const [routeCoords, setRouteCoords] = useState<{latitude: number, longitude: number}[]>([]);
+  
+  // Holds the food spots found by the API
+  const [foodSpots, setFoodSpots] = useState<any[]>([]);
+
+  // user's current location
+  const [region, setRegion] = useState<{
+    latitude: number;
+    longitude: number;
+    latitudeDelta: number;
+    longitudeDelta: number;
+  } | undefined>(undefined);
+
+  useEffect(() => {
+    async function getCurrentLocation() {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert(
+          'Permission Denied', 
+          'Please enable location services to see your current position on the map.'
+        );
+      }
+
+      let location = await Location.getCurrentPositionAsync({});
+      setRegion({
+        latitude: location.coords.latitude,
+        longitude: location.coords.longitude,
+        latitudeDelta: 0.05,
+        longitudeDelta: 0.05,
+      });
+    }
+    getCurrentLocation();
+  }, []);
+
+  const handleTextChange = async (text: string) => {
+    setSearch(text);
+
+    if (text.length < 3) {
+      setSuggestions([]);
+      return;
+    }
+    setLoading(true);
+    try {
+      const response = await fetch(
+        `https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(text)}&apiKey=${GEOAPIFY_KEY}`
+      ); 
+      const data = await response.json();
+      
+      if (data.features) {
+        setSuggestions(data.features);
+      }
+    } catch (error) {
+      console.error('Autocomplete error:', error);
+    }
+    setLoading(false);
+  };
+
+  const handleSelectSuggestion = async (item: any) => {
+    const [lon, lat] = item.geometry.coordinates;
+    const formattedAddress = item.properties.formatted;
+    setSearch(formattedAddress);
+    setSuggestions([]);
+
+    if (!region) return;
+    
+    // 1. Move the camera so both start and end are somewhat visible
+    setRegion({
+      latitude: (region.latitude + lat) / 2,
+      longitude: (region.longitude + lon) / 2,
+      latitudeDelta: Math.abs(region.latitude - lat) * 1.5 || 0.05,
+      longitudeDelta: Math.abs(region.longitude - lon) * 1.5 || 0.05,
+    });
+
+    setLoading(true);
+
+    try {
+      // 2. Fetch the route from Geoapify Routing API
+      const routeResponse = await fetch(
+        `https://api.geoapify.com/v1/routing?waypoints=${region.latitude},${region.longitude}|${lat},${lon}&mode=drive&apiKey=${GEOAPIFY_KEY}`
+      );
+      const routeData = await routeResponse.json();
+
+      if (routeData.features && routeData.features.length > 0) {
+        const rawCoords = routeData.features[0].geometry.coordinates[0];
+        const formattedCoords = rawCoords.map((coord: any[]) => ({
+          latitude: coord[1],
+          longitude: coord[0]
+        }));
+        setRouteCoords(formattedCoords);
+      }
+
+      // 3. Fetch the food spots near the destination
+      const placesResponse = await fetch(
+        `https://api.geoapify.com/v2/places?categories=catering.fast_food,catering.restaurant&filter=circle:${lon},${lat},5000&limit=20&apiKey=${GEOAPIFY_KEY}`
+      );
+      const placesData = await placesResponse.json();
+      
+      if (placesData.features) {
+        setFoodSpots(placesData.features);
+      }
+
+    } catch (error) {
+      console.error('Routing/Places error:', error);
+      Alert.alert('Error', 'Could not calculate route or fetch places.');
+    }
+    setLoading(false);
+  };
+
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
+    <View style={styles.container}>
+      {/* Map itself */}
+      {region && (
+        <MapView 
+          style={styles.map} 
+          region={region} 
+          showsUserLocation={true}
+        >
+          {routeCoords.length > 0 && (
+            <Polyline 
+              coordinates={routeCoords} 
+              strokeColor="#007AFF"
+              strokeWidth={5} 
             />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+          )}
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+          {foodSpots.map((spot, index) => {
+            const [spotLon, spotLat] = spot.geometry.coordinates;
+            return (
+              <Marker
+                key={index}
+                coordinate={{ latitude: spotLat, longitude: spotLon }}
+                title={spot.properties.name || "Food Spot"}
+                description={spot.properties.street || "Unknown address"}
+              />
+            );
+          })}
+        </MapView> 
+      )}
+      
+      <SafeAreaView style={styles.searchContainer}>
+        <View style={styles.searchBarWrapper}>
+          <TextInput 
+            placeholder="Search destination..."
+            value={search}
+            style={styles.searchBar}
+            returnKeyType="search"
+            onChangeText={handleTextChange}
+            clearButtonMode="while-editing"
+          />
+          {suggestions.length > 0 && ( 
+            <View style={styles.dropdown}>
+              <FlatList
+                data={suggestions}
+                keyExtractor={(item, index) => index.toString()}
+                renderItem={({ item }) => (
+                  <TouchableOpacity 
+                    style={styles.suggestionItem} 
+                    onPress={() => handleSelectSuggestion(item)}
+                  >
+                    <Text numberOfLines={1}>{item.properties.formatted}</Text>
+                  </TouchableOpacity>
+                )}
+              />
+            </View>
+          )}
+          {loading && <ActivityIndicator style={styles.spinner}/>}
+        </View>
+      </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
+  container: {
+    flex: 1,
+  },
+  map: {
+    width: '100%',
+    height: '100%',
+  },
+  searchContainer: {
+    position: 'absolute',
+    top: 20,
+    left: 10,
+    right: 10,
+    zIndex: 1,
+  },
+  searchBarWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    backgroundColor: '#ffffff',
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  searchBar: {
+    flex: 1,
+    height: 50,
+    paddingHorizontal: 16,
+    fontSize: 16,
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  spinner: {
+    paddingRight: 16,
+  },
+  dropdown: {
+    backgroundColor: 'white',
+    marginTop: 5,
+    borderRadius: 8,
+    maxHeight: 200,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  suggestionItem: {
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#eee',
   },
 });
