@@ -3,7 +3,6 @@ import { BlurView } from 'expo-blur';
 import * as Location from 'expo-location';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Alert,
   Animated,
   Dimensions,
@@ -17,6 +16,7 @@ import {
   View
 } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
+import Svg, { Circle } from 'react-native-svg';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -33,12 +33,18 @@ export default function App() {
     longitudeDelta: number;
   } | undefined>(undefined);
 
-  const [searchRadius, setSearchRadius] = useState(4828); 
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [isSearchExpanded, setIsSearchExpanded] = useState(false);
+  const [isResultsExpanded, setIsResultsExpanded] = useState(false);
 
   const GEOAPIFY_KEY = process.env.EXPO_PUBLIC_GEOAPIFY_KEY;
 
-  const masterAnim = useRef(new Animated.Value(0)).current;
+  // --- Safe, Isolated Animation Controllers ---
+  const searchAnim = useRef(new Animated.Value(0)).current;  
+  const resultsAnim = useRef(new Animated.Value(0)).current; 
+  
+  const loadingProgress = useRef(new Animated.Value(0)).current;
+  const spinAnim = useRef(new Animated.Value(0)).current;
+  
   const searchInputRef = useRef<TextInput>(null);
 
   useEffect(() => {
@@ -59,20 +65,43 @@ export default function App() {
     getCurrentLocation();
   }, []);
 
-  const expandPanel = () => {
-    setIsExpanded(true);
-    Animated.sequence([
-      Animated.timing(masterAnim, {
+  useEffect(() => {
+    Animated.loop(
+      Animated.timing(spinAnim, {
         toValue: 1,
-        duration: 600,
+        duration: 1400,
+        easing: Easing.inOut(Easing.cubic),
+        useNativeDriver: true,
+      })
+    ).start();
+  }, []);
+
+  useEffect(() => {
+    Animated.timing(loadingProgress, {
+      toValue: loading ? 1 : 0,
+      duration: loading ? 1000 : 700, 
+      easing: Easing.inOut(Easing.cubic),
+      useNativeDriver: true,
+    }).start();
+  }, [loading]);
+
+  const expandSearchPanel = () => {
+    if (isResultsExpanded) {
+      setIsResultsExpanded(false);
+      resultsAnim.setValue(0); 
+    }
+
+    setIsSearchExpanded(true);
+    Animated.sequence([
+      Animated.timing(searchAnim, {
+        toValue: 1,
+        duration: 500,
         easing: Easing.inOut(Easing.quad),
         useNativeDriver: false,
       }),
-      Animated.delay(150),
-      Animated.timing(masterAnim, {
+      Animated.timing(searchAnim, {
         toValue: 2,
-        // Sped back up for a snappy, responsive ink bleed
-        duration: 700, 
+        duration: 600, 
         easing: Easing.out(Easing.cubic),
         useNativeDriver: false,
       })
@@ -81,87 +110,84 @@ export default function App() {
     });
   };
 
-  const collapsePanel = () => {
+  const collapseSearchPanel = () => {
     Keyboard.dismiss();
     Animated.sequence([
-      Animated.timing(masterAnim, {
+      Animated.timing(searchAnim, {
         toValue: 1,
-        duration: 600,
+        duration: 500,
         easing: Easing.inOut(Easing.cubic),
         useNativeDriver: false,
       }),
-      Animated.delay(100),
-      Animated.timing(masterAnim, {
+      Animated.timing(searchAnim, {
         toValue: 0,
-        duration: 500,
+        duration: 400,
         easing: Easing.inOut(Easing.quad),
         useNativeDriver: false,
       })
-    ]).start(() => setIsExpanded(false));
+    ]).start(() => {
+      setIsSearchExpanded(false);
+      setSearch('');
+      setSuggestions([]);
+    });
   };
 
-  // --- Dynamic Positioning & Sizing ---
-  const panelBottom = masterAnim.interpolate({
-    inputRange: [0, 1, 2],
-    outputRange: [40, 490, 372.5] 
-  });
+  const closeResultsPanel = () => {
+    Animated.timing(resultsAnim, {
+      toValue: 0,
+      duration: 500,
+      easing: Easing.inOut(Easing.cubic),
+      useNativeDriver: false,
+    }).start(() => setIsResultsExpanded(false));
+  };
+
+  // --- Bulletproof Math Engine ---
   
-  const panelHeight = masterAnim.interpolate({
-    inputRange: [0, 1, 2],
-    outputRange: [105, 105, 340] 
-  });
+  // RESTORED: This raises the box exactly 450px and settles at 332.5px offset, giving a total bottom of 372.5px. 
+  // It perfectly clears the iOS keyboard without flying into orbit.
+  const searchBottomOffset = searchAnim.interpolate({ inputRange: [0, 1, 2], outputRange: [0, 450, 332.5] }); 
+  const resultsBottomOffset = resultsAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0] }); 
+  const panelBottom = Animated.add(new Animated.Value(40), Animated.add(searchBottomOffset, resultsBottomOffset));
 
-  const panelWidth = masterAnim.interpolate({
-    inputRange: [0, 1, 2],
-    outputRange: [105, 105, SCREEN_WIDTH * 0.92] 
-  });
+  const searchHeightOffset = searchAnim.interpolate({ inputRange: [0, 1, 2], outputRange: [0, 0, 235] }); 
+  const resultsHeightOffset = resultsAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 195] }); 
+  const panelHeight = Animated.add(new Animated.Value(105), Animated.add(searchHeightOffset, resultsHeightOffset));
 
-  const panelRadius = masterAnim.interpolate({
-    inputRange: [0, 1, 2],
-    outputRange: [52.5, 52.5, 24] 
-  });
+  const searchWidthOffset = searchAnim.interpolate({ inputRange: [0, 1, 2], outputRange: [0, 0, (SCREEN_WIDTH * 0.92) - 105] });
+  const resultsWidthOffset = resultsAnim.interpolate({ inputRange: [0, 1], outputRange: [0, (SCREEN_WIDTH * 0.92) - 105] });
+  const panelWidth = Animated.add(new Animated.Value(105), Animated.add(searchWidthOffset, resultsWidthOffset));
 
-  // --- Ink Bleed / Halo Math ---
-  const bleedScale1 = masterAnim.interpolate({
-    inputRange: [0, 1, 1.5, 2],
-    outputRange: [1, 1, 1.08, 1] 
-  });
+  const searchRadiusOffset = searchAnim.interpolate({ inputRange: [0, 1, 2], outputRange: [0, 0, -28.5] }); 
+  const resultsRadiusOffset = resultsAnim.interpolate({ inputRange: [0, 1], outputRange: [0, -28.5] });
+  const panelRadius = Animated.add(new Animated.Value(52.5), Animated.add(searchRadiusOffset, resultsRadiusOffset));
+
+  // Opacity interpolations
+  const searchContentOpacity = searchAnim.interpolate({ inputRange: [0, 1, 1.5, 2], outputRange: [0, 0, 0, 1] });
+  const resultsContentOpacity = resultsAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, 0, 1] });
+
+  const iconOpacitySearch = searchAnim.interpolate({ inputRange: [0, 1, 1.2, 2], outputRange: [0, 0, -1, -1] });
+  const iconOpacityResults = resultsAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, -1, -1] });
+  const centerIconOpacity = Animated.add(new Animated.Value(1), Animated.add(iconOpacitySearch, iconOpacityResults));
+
+  const solidOpacitySearch = searchAnim.interpolate({ inputRange: [0, 1, 2], outputRange: [0, 0, -1] });
+  const solidOpacityResults = resultsAnim.interpolate({ inputRange: [0, 1], outputRange: [0, -1] });
+  const solidColorOpacity = Animated.add(new Animated.Value(1), Animated.add(solidOpacitySearch, solidOpacityResults));
+
+  const blurOpacitySearch = searchAnim.interpolate({ inputRange: [0, 1, 2], outputRange: [0, 0, 1] });
+  const blurOpacityResults = resultsAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
+  const blurOpacity = Animated.add(blurOpacitySearch, blurOpacityResults);
+
+  // --- Orbit Loader Math ---
+  const forkScaleX = loadingProgress.interpolate({ inputRange: [0, 0.5], outputRange: [1, 0.05], extrapolate: 'clamp' });
+  const forkScaleY = loadingProgress.interpolate({ inputRange: [0, 0.5], outputRange: [1, 1], extrapolate: 'clamp' });
+  const forkOpacity = loadingProgress.interpolate({ inputRange: [0, 0.49, 0.5], outputRange: [1, 1, 0], extrapolate: 'clamp' });
+
+  const spinnerScaleX = loadingProgress.interpolate({ inputRange: [0.5, 1], outputRange: [0.05, 1], extrapolate: 'clamp' });
+  const spinnerScaleY = loadingProgress.interpolate({ inputRange: [0.5, 1], outputRange: [1, 1], extrapolate: 'clamp' });
+  const spinnerOpacity = loadingProgress.interpolate({ inputRange: [0.49, 0.5, 0.51], outputRange: [0, 0, 1], extrapolate: 'clamp' });
   
-  const bleedOpacity1 = masterAnim.interpolate({
-    inputRange: [0, 1, 1.2, 1.8, 2],
-    outputRange: [0, 0, 0.4, 0.4, 0] 
-  });
-
-  const bleedScale2 = masterAnim.interpolate({
-    inputRange: [0, 1, 1.5, 2],
-    outputRange: [1, 1, 1.14, 1] 
-  });
-
-  const bleedOpacity2 = masterAnim.interpolate({
-    inputRange: [0, 1, 1.2, 1.8, 2],
-    outputRange: [0, 0, 0.15, 0.15, 0]
-  });
-
-  // --- Fade Transitions ---
-  const solidColorOpacity = masterAnim.interpolate({
-    inputRange: [0, 1, 1.8, 2],
-    outputRange: [1, 1, 1, 0] 
-  });
-
-  const blurOpacity = masterAnim.interpolate({
-    inputRange: [0, 1, 1.8, 2],
-    outputRange: [0, 0, 0, 1] 
-  });
-
-  const forkOpacity = masterAnim.interpolate({
-    inputRange: [0, 1, 1.2, 2],
-    outputRange: [1, 1, 0, 0] 
-  });
-
-  const contentOpacity = masterAnim.interpolate({
-    inputRange: [0, 1, 1.6, 2],
-    outputRange: [0, 0, 0, 1] 
-  });
+  const spinnerRotate = spinAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+  const spinnerPulseScale = spinAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.6, 1.1, 0.6] });
 
   const handleTextChange = async (text: string) => {
     setSearch(text);
@@ -169,7 +195,6 @@ export default function App() {
       setSuggestions([]);
       return;
     }
-    setLoading(true);
     try {
       const response = await fetch(
         `https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(text)}&apiKey=${GEOAPIFY_KEY}`
@@ -179,60 +204,72 @@ export default function App() {
     } catch (error) {
       console.error('Autocomplete error:', error);
     }
-    setLoading(false);
   };
 
   const handleSelectSuggestion = async (item: any) => {
     const [lon, lat] = item.geometry.coordinates;
     const formattedAddress = item.properties.formatted;
     setSearch(formattedAddress);
-    setSuggestions([]);
-    collapsePanel();
-
-    if (!region) return;
+    setSuggestions([]); 
     
-    setRegion({
-      latitude: (region.latitude + lat) / 2,
-      longitude: (region.longitude + lon) / 2,
-      latitudeDelta: Math.abs(region.latitude - lat) * 1.5 || 0.05,
-      longitudeDelta: Math.abs(region.longitude - lon) * 1.5 || 0.05,
-    });
+    Keyboard.dismiss();
+    setIsSearchExpanded(false);
 
-    setLoading(true);
+    Animated.sequence([
+      Animated.timing(searchAnim, { toValue: 1, duration: 400, easing: Easing.inOut(Easing.cubic), useNativeDriver: false }),
+      Animated.timing(searchAnim, { toValue: 0, duration: 400, easing: Easing.inOut(Easing.quad), useNativeDriver: false })
+    ]).start(async () => {
+      
+      setLoading(true);
 
-    try {
-      const routeResponse = await fetch(
-        `https://api.geoapify.com/v1/routing?waypoints=${region.latitude},${region.longitude}|${lat},${lon}&mode=drive&apiKey=${GEOAPIFY_KEY}`
-      );
-      const routeData = await routeResponse.json();
+      if (!region) { setLoading(false); return; }
+      
+      setRegion({
+        latitude: (region.latitude + lat) / 2,
+        longitude: (region.longitude + lon) / 2,
+        latitudeDelta: Math.abs(region.latitude - lat) * 1.5 || 0.05,
+        longitudeDelta: Math.abs(region.longitude - lon) * 1.5 || 0.05,
+      });
 
-      if (routeData.features && routeData.features.length > 0) {
-        const rawCoords = routeData.features[0].geometry.coordinates[0];
-        const formattedCoords = rawCoords.map((coord: any[]) => ({
-          latitude: coord[1],
-          longitude: coord[0]
-        }));
-        setRouteCoords(formattedCoords);
+      try {
+        await new Promise(resolve => setTimeout(resolve, 3000));
+
+        const routeResponse = await fetch(
+          `https://api.geoapify.com/v1/routing?waypoints=${region.latitude},${region.longitude}|${lat},${lon}&mode=drive&apiKey=${GEOAPIFY_KEY}`
+        );
+        const routeData = await routeResponse.json();
+
+        if (routeData.features && routeData.features.length > 0) {
+          const rawCoords = routeData.features[0].geometry.coordinates[0];
+          const formattedCoords = rawCoords.map((coord: any[]) => ({
+            latitude: coord[1],
+            longitude: coord[0]
+          }));
+          setRouteCoords(formattedCoords);
+        }
+
+        const placesResponse = await fetch(
+          `https://api.geoapify.com/v2/places?categories=catering.fast_food,catering.restaurant&filter=circle:${lon},${lat},4828&limit=20&apiKey=${GEOAPIFY_KEY}`
+        );
+        const placesData = await placesResponse.json();
+        if (placesData.features) setFoodSpots(placesData.features);
+      } catch (error) {
+        Alert.alert('Error', 'Could not calculate route or fetch places.');
       }
+      
+      setLoading(false);
 
-      const placesResponse = await fetch(
-        `https://api.geoapify.com/v2/places?categories=catering.fast_food,catering.restaurant&filter=circle:${lon},${lat},${searchRadius}&limit=20&apiKey=${GEOAPIFY_KEY}`
-      );
-      const placesData = await placesResponse.json();
-      if (placesData.features) setFoodSpots(placesData.features);
-    } catch (error) {
-      Alert.alert('Error', 'Could not calculate route or fetch places.');
-    }
-    setLoading(false);
-  };
+      setTimeout(() => {
+        setIsResultsExpanded(true);
+        Animated.timing(resultsAnim, {
+          toValue: 1,
+          duration: 600,
+          easing: Easing.out(Easing.cubic),
+          useNativeDriver: false
+        }).start();
+      }, 800); 
 
-  const basePanelStyle = {
-    position: 'absolute' as const,
-    alignSelf: 'center' as const,
-    height: panelHeight,
-    width: panelWidth,
-    bottom: panelBottom,
-    borderRadius: panelRadius,
+    });
   };
 
   return (
@@ -256,21 +293,18 @@ export default function App() {
           })}
         </MapView> 
       )}
-      
-      <Animated.View style={[basePanelStyle, { 
-        backgroundColor: '#181818', 
-        opacity: bleedOpacity2, 
-        transform: [{ scale: bleedScale2 }] 
-      }]} pointerEvents="none" />
 
-      <Animated.View style={[basePanelStyle, { 
-        backgroundColor: '#181818', 
-        opacity: bleedOpacity1, 
-        transform: [{ scale: bleedScale1 }] 
-      }]} pointerEvents="none" />
-
-      <Animated.View style={[basePanelStyle, styles.mainPanelWrapper]}>
-        
+      <Animated.View 
+        style={[
+          styles.mainPanelWrapper, 
+          { 
+            height: panelHeight,
+            width: panelWidth,
+            bottom: panelBottom,
+            borderRadius: panelRadius,
+          }
+        ]}
+      >
         <Animated.View style={[StyleSheet.absoluteFill, { opacity: blurOpacity }]}>
           <BlurView intensity={85} tint="dark" style={StyleSheet.absoluteFill} />
         </Animated.View>
@@ -280,18 +314,39 @@ export default function App() {
           opacity: solidColorOpacity 
         }]} />
         
+        {/* Layer 1: The Morphing Center Icon (Fork & Spinner) */}
         <Animated.View 
-          style={[styles.forkWrapper, { opacity: forkOpacity }]} 
-          pointerEvents={isExpanded ? 'none' : 'auto'}
+          style={[styles.forkWrapper, { opacity: centerIconOpacity }]} 
+          pointerEvents={isSearchExpanded || isResultsExpanded ? 'none' : 'auto'}
         >
-          <TouchableOpacity onPress={expandPanel} style={styles.forkButton}>
-            <MaterialCommunityIcons name="silverware-fork" size={48} color="#fff" />
+          <TouchableOpacity onPress={expandSearchPanel} style={styles.forkButton} disabled={loading}>
+            
+            <Animated.View style={{ position: 'absolute', opacity: forkOpacity, transform: [{ scaleX: forkScaleX }, { scaleY: forkScaleY }] }}>
+              <MaterialCommunityIcons name="silverware-fork" size={48} color="#fff" />
+            </Animated.View>
+
+            <Animated.View style={{ position: 'absolute', opacity: spinnerOpacity, transform: [{ scaleX: spinnerScaleX }, { scaleY: spinnerScaleY }] }}>
+              <Animated.View style={{ transform: [{ rotate: spinnerRotate }, { scale: spinnerPulseScale }] }}>
+                <Svg width="50" height="50" viewBox="0 0 50 50">
+                  <Circle 
+                    cx="25" cy="25" r="20" 
+                    stroke="#ffffff" 
+                    strokeWidth="4" 
+                    fill="none" 
+                    strokeDasharray="26 15.888" 
+                    strokeLinecap="round" 
+                  />
+                </Svg>
+              </Animated.View>
+            </Animated.View>
+
           </TouchableOpacity>
         </Animated.View>
 
+        {/* Layer 2: The Expanded Search Bar & Suggestions */}
         <Animated.View 
-          style={[StyleSheet.absoluteFill, { opacity: contentOpacity }]} 
-          pointerEvents={isExpanded ? 'auto' : 'none'}
+          style={[StyleSheet.absoluteFill, { opacity: searchContentOpacity }]} 
+          pointerEvents={isSearchExpanded ? 'auto' : 'none'}
         >
           <View style={styles.searchRow}>
             <Ionicons name="search" size={20} color="#aaa" style={styles.searchIcon} />
@@ -305,41 +360,13 @@ export default function App() {
               onChangeText={handleTextChange}
               clearButtonMode="while-editing"
             />
-            {loading && <ActivityIndicator color="#fff" style={styles.spinner}/>}
             
-            <TouchableOpacity onPress={collapsePanel} style={styles.cancelBtn}>
+            <TouchableOpacity onPress={collapseSearchPanel} style={styles.cancelBtn}>
               <Text style={styles.cancelText}>Cancel</Text>
             </TouchableOpacity>
           </View>
 
           <View style={styles.hiddenContent}>
-            <View style={styles.filterSection}>
-              <Text style={styles.filterTitle}>Search Radius</Text>
-              <View style={styles.pillContainer}>
-                {[
-                  { label: '1 Mi', value: 1609 },
-                  { label: '3 Mi', value: 4828 },
-                  { label: '5 Mi', value: 8046 }
-                ].map((pill) => (
-                  <TouchableOpacity
-                    key={pill.label}
-                    style={[
-                      styles.filterPill,
-                      searchRadius === pill.value && styles.filterPillActive
-                    ]}
-                    onPress={() => setSearchRadius(pill.value)}
-                  >
-                    <Text style={[
-                      styles.filterPillText,
-                      searchRadius === pill.value && styles.filterPillTextActive
-                    ]}>
-                      {pill.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-
             {suggestions.length > 0 && ( 
               <View style={styles.dropdown}>
                 <FlatList
@@ -362,6 +389,24 @@ export default function App() {
           </View>
         </Animated.View>
 
+        {/* Layer 3: The Bottom Results Rectangle */}
+        <Animated.View 
+          style={[StyleSheet.absoluteFill, { opacity: resultsContentOpacity }]} 
+          pointerEvents={isResultsExpanded ? 'auto' : 'none'}
+        >
+          <View style={styles.resultsHeader}>
+            <Text style={styles.resultsTitle}>Nearby Spots</Text>
+            <TouchableOpacity onPress={closeResultsPanel} style={styles.closeBtn}>
+              <Ionicons name="close-circle" size={28} color="#aaa" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.placeholderContainer}>
+            <Ionicons name="restaurant-outline" size={36} color="#aaa" style={styles.placeholderIcon} />
+            <Text style={styles.placeholderText}>Restaurant results will appear here</Text>
+          </View>
+        </Animated.View>
+
       </Animated.View>
     </View>
   );
@@ -372,6 +417,8 @@ const styles = StyleSheet.create({
   map: { width: '100%', height: '100%' },
   
   mainPanelWrapper: {
+    position: 'absolute',
+    alignSelf: 'center', 
     overflow: 'hidden', 
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
@@ -406,7 +453,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: '#ffffff',
   },
-  spinner: { marginLeft: 10 },
   cancelBtn: { marginLeft: 12 },
   cancelText: {
     color: '#0a84ff', 
@@ -419,36 +465,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 5,
   },
-  filterSection: { marginBottom: 15 },
-  filterTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#ccc',
-    marginBottom: 10,
-    marginLeft: 5,
-  },
-  pillContainer: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  filterPill: {
-    paddingVertical: 8,
-    paddingHorizontal: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  filterPillActive: {
-    backgroundColor: '#0a84ff',
-    borderColor: '#0a84ff',
-  },
-  filterPillText: {
-    fontWeight: '600',
-    color: '#bbb',
-  },
-  filterPillTextActive: { color: '#fff' },
-  
   dropdown: {
     backgroundColor: 'rgba(255, 255, 255, 0.1)',
     borderRadius: 12,
@@ -464,4 +480,38 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 15,
   },
+
+  // Results Styles
+  resultsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  resultsTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#ffffff',
+  },
+  closeBtn: {
+    padding: 5,
+  },
+  placeholderContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingBottom: 20,
+  },
+  placeholderIcon: {
+    marginBottom: 15,
+  },
+  placeholderText: {
+    color: '#aaa',
+    fontSize: 16,
+    fontWeight: '500',
+  }
 });
