@@ -1,4 +1,4 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import * as Location from 'expo-location';
 import React, { useEffect, useRef, useState } from 'react';
@@ -6,6 +6,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  Dimensions,
   Easing,
   FlatList,
   Keyboard,
@@ -16,6 +17,8 @@ import {
   View
 } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
+
+const SCREEN_WIDTH = Dimensions.get('window').width;
 
 export default function App() {
   const [search, setSearch] = useState('');
@@ -36,6 +39,7 @@ export default function App() {
   const GEOAPIFY_KEY = process.env.EXPO_PUBLIC_GEOAPIFY_KEY;
 
   const masterAnim = useRef(new Animated.Value(0)).current;
+  const searchInputRef = useRef<TextInput>(null);
 
   useEffect(() => {
     async function getCurrentLocation() {
@@ -64,14 +68,17 @@ export default function App() {
         easing: Easing.inOut(Easing.quad),
         useNativeDriver: false,
       }),
-      Animated.delay(200),
+      Animated.delay(150),
       Animated.timing(masterAnim, {
         toValue: 2,
-        duration: 800,
+        // Sped back up for a snappy, responsive ink bleed
+        duration: 700, 
         easing: Easing.out(Easing.cubic),
         useNativeDriver: false,
       })
-    ]).start();
+    ]).start(() => {
+      searchInputRef.current?.focus();
+    });
   };
 
   const collapsePanel = () => {
@@ -93,40 +100,67 @@ export default function App() {
     ]).start(() => setIsExpanded(false));
   };
 
-  // --- Floating Panel Math ---
-  const panelMarginBottom = masterAnim.interpolate({
+  // --- Dynamic Positioning & Sizing ---
+  const panelBottom = masterAnim.interpolate({
     inputRange: [0, 1, 2],
-    // Drops to 370px so it hovers perfectly above the iOS keyboard line
-    outputRange: [40, 650, 370] 
+    outputRange: [40, 490, 372.5] 
   });
   
   const panelHeight = masterAnim.interpolate({
     inputRange: [0, 1, 2],
-    // Expands to 340px tall while anchored above the keyboard
-    outputRange: [60, 60, 340] 
+    outputRange: [105, 105, 340] 
   });
 
-  const panelMarginHorizontal = masterAnim.interpolate({
+  const panelWidth = masterAnim.interpolate({
     inputRange: [0, 1, 2],
-    // Stops at 15px so it floats securely away from the screen edges
-    outputRange: [20, 20, 15] 
+    outputRange: [105, 105, SCREEN_WIDTH * 0.92] 
   });
 
-  const panelTopRadius = masterAnim.interpolate({
+  const panelRadius = masterAnim.interpolate({
     inputRange: [0, 1, 2],
-    // Stays perfectly round at 30
-    outputRange: [30, 30, 30] 
+    outputRange: [52.5, 52.5, 24] 
   });
 
-  const panelBottomRadius = masterAnim.interpolate({
-    inputRange: [0, 1, 2],
-    // Stays perfectly round at 30 to maintain the pill aesthetic
-    outputRange: [30, 30, 30] 
+  // --- Ink Bleed / Halo Math ---
+  const bleedScale1 = masterAnim.interpolate({
+    inputRange: [0, 1, 1.5, 2],
+    outputRange: [1, 1, 1.08, 1] 
+  });
+  
+  const bleedOpacity1 = masterAnim.interpolate({
+    inputRange: [0, 1, 1.2, 1.8, 2],
+    outputRange: [0, 0, 0.4, 0.4, 0] 
   });
 
-  const cancelOpacity = masterAnim.interpolate({
-    inputRange: [0, 1, 2],
-    outputRange: [0, 0, 1] 
+  const bleedScale2 = masterAnim.interpolate({
+    inputRange: [0, 1, 1.5, 2],
+    outputRange: [1, 1, 1.14, 1] 
+  });
+
+  const bleedOpacity2 = masterAnim.interpolate({
+    inputRange: [0, 1, 1.2, 1.8, 2],
+    outputRange: [0, 0, 0.15, 0.15, 0]
+  });
+
+  // --- Fade Transitions ---
+  const solidColorOpacity = masterAnim.interpolate({
+    inputRange: [0, 1, 1.8, 2],
+    outputRange: [1, 1, 1, 0] 
+  });
+
+  const blurOpacity = masterAnim.interpolate({
+    inputRange: [0, 1, 1.8, 2],
+    outputRange: [0, 0, 0, 1] 
+  });
+
+  const forkOpacity = masterAnim.interpolate({
+    inputRange: [0, 1, 1.2, 2],
+    outputRange: [1, 1, 0, 0] 
+  });
+
+  const contentOpacity = masterAnim.interpolate({
+    inputRange: [0, 1, 1.6, 2],
+    outputRange: [0, 0, 0, 1] 
   });
 
   const handleTextChange = async (text: string) => {
@@ -192,6 +226,15 @@ export default function App() {
     setLoading(false);
   };
 
+  const basePanelStyle = {
+    position: 'absolute' as const,
+    alignSelf: 'center' as const,
+    height: panelHeight,
+    width: panelWidth,
+    bottom: panelBottom,
+    borderRadius: panelRadius,
+  };
+
   return (
     <View style={styles.container}>
       
@@ -214,92 +257,110 @@ export default function App() {
         </MapView> 
       )}
       
-      <Animated.View 
-        style={[
-          styles.morphingPanel, 
-          { 
-            height: panelHeight,
-            left: panelMarginHorizontal,
-            right: panelMarginHorizontal,
-            bottom: panelMarginBottom,
-            borderTopLeftRadius: panelTopRadius,
-            borderTopRightRadius: panelTopRadius,
-            borderBottomLeftRadius: panelBottomRadius,
-            borderBottomRightRadius: panelBottomRadius,
-          }
-        ]}
-      >
-        <BlurView intensity={85} tint="dark" style={StyleSheet.absoluteFill} />
+      <Animated.View style={[basePanelStyle, { 
+        backgroundColor: '#181818', 
+        opacity: bleedOpacity2, 
+        transform: [{ scale: bleedScale2 }] 
+      }]} pointerEvents="none" />
+
+      <Animated.View style={[basePanelStyle, { 
+        backgroundColor: '#181818', 
+        opacity: bleedOpacity1, 
+        transform: [{ scale: bleedScale1 }] 
+      }]} pointerEvents="none" />
+
+      <Animated.View style={[basePanelStyle, styles.mainPanelWrapper]}>
         
-        <View style={styles.searchRow}>
-          <Ionicons name="search" size={20} color="#aaa" style={styles.searchIcon} />
-          <TextInput 
-            placeholder="Where are we eating?"
-            placeholderTextColor="#999"
-            value={search}
-            style={styles.searchBar}
-            returnKeyType="search"
-            onChangeText={handleTextChange}
-            onFocus={expandPanel} 
-            clearButtonMode="while-editing"
-          />
-          {loading && <ActivityIndicator color="#fff" style={styles.spinner}/>}
-          
-          <Animated.View style={{ opacity: cancelOpacity }}>
-            <TouchableOpacity onPress={collapsePanel} style={styles.cancelBtn} disabled={!isExpanded}>
+        <Animated.View style={[StyleSheet.absoluteFill, { opacity: blurOpacity }]}>
+          <BlurView intensity={85} tint="dark" style={StyleSheet.absoluteFill} />
+        </Animated.View>
+
+        <Animated.View style={[StyleSheet.absoluteFill, { 
+          backgroundColor: '#181818', 
+          opacity: solidColorOpacity 
+        }]} />
+        
+        <Animated.View 
+          style={[styles.forkWrapper, { opacity: forkOpacity }]} 
+          pointerEvents={isExpanded ? 'none' : 'auto'}
+        >
+          <TouchableOpacity onPress={expandPanel} style={styles.forkButton}>
+            <MaterialCommunityIcons name="silverware-fork" size={48} color="#fff" />
+          </TouchableOpacity>
+        </Animated.View>
+
+        <Animated.View 
+          style={[StyleSheet.absoluteFill, { opacity: contentOpacity }]} 
+          pointerEvents={isExpanded ? 'auto' : 'none'}
+        >
+          <View style={styles.searchRow}>
+            <Ionicons name="search" size={20} color="#aaa" style={styles.searchIcon} />
+            <TextInput 
+              ref={searchInputRef}
+              placeholder="Where are we going?"
+              placeholderTextColor="#999"
+              value={search}
+              style={styles.searchBar}
+              returnKeyType="search"
+              onChangeText={handleTextChange}
+              clearButtonMode="while-editing"
+            />
+            {loading && <ActivityIndicator color="#fff" style={styles.spinner}/>}
+            
+            <TouchableOpacity onPress={collapsePanel} style={styles.cancelBtn}>
               <Text style={styles.cancelText}>Cancel</Text>
             </TouchableOpacity>
-          </Animated.View>
-        </View>
-
-        <View style={styles.hiddenContent} pointerEvents={isExpanded ? 'auto' : 'none'}>
-          <View style={styles.filterSection}>
-            <Text style={styles.filterTitle}>Search Radius</Text>
-            <View style={styles.pillContainer}>
-              {[
-                { label: '1 Mi', value: 1609 },
-                { label: '3 Mi', value: 4828 },
-                { label: '5 Mi', value: 8046 }
-              ].map((pill) => (
-                <TouchableOpacity
-                  key={pill.label}
-                  style={[
-                    styles.filterPill,
-                    searchRadius === pill.value && styles.filterPillActive
-                  ]}
-                  onPress={() => setSearchRadius(pill.value)}
-                >
-                  <Text style={[
-                    styles.filterPillText,
-                    searchRadius === pill.value && styles.filterPillTextActive
-                  ]}>
-                    {pill.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
           </View>
 
-          {suggestions.length > 0 && ( 
-            <View style={styles.dropdown}>
-              <FlatList
-                data={suggestions}
-                keyExtractor={(item, index) => index.toString()}
-                keyboardShouldPersistTaps="handled"
-                renderItem={({ item }) => (
-                  <TouchableOpacity 
-                    style={styles.suggestionItem} 
-                    onPress={() => handleSelectSuggestion(item)}
+          <View style={styles.hiddenContent}>
+            <View style={styles.filterSection}>
+              <Text style={styles.filterTitle}>Search Radius</Text>
+              <View style={styles.pillContainer}>
+                {[
+                  { label: '1 Mi', value: 1609 },
+                  { label: '3 Mi', value: 4828 },
+                  { label: '5 Mi', value: 8046 }
+                ].map((pill) => (
+                  <TouchableOpacity
+                    key={pill.label}
+                    style={[
+                      styles.filterPill,
+                      searchRadius === pill.value && styles.filterPillActive
+                    ]}
+                    onPress={() => setSearchRadius(pill.value)}
                   >
-                    <Text style={styles.suggestionText} numberOfLines={1}>
-                      {item.properties.formatted}
+                    <Text style={[
+                      styles.filterPillText,
+                      searchRadius === pill.value && styles.filterPillTextActive
+                    ]}>
+                      {pill.label}
                     </Text>
                   </TouchableOpacity>
-                )}
-              />
+                ))}
+              </View>
             </View>
-          )}
-        </View>
+
+            {suggestions.length > 0 && ( 
+              <View style={styles.dropdown}>
+                <FlatList
+                  data={suggestions}
+                  keyExtractor={(item, index) => index.toString()}
+                  keyboardShouldPersistTaps="handled"
+                  renderItem={({ item }) => (
+                    <TouchableOpacity 
+                      style={styles.suggestionItem} 
+                      onPress={() => handleSelectSuggestion(item)}
+                    >
+                      <Text style={styles.suggestionText} numberOfLines={1}>
+                        {item.properties.formatted}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                />
+              </View>
+            )}
+          </View>
+        </Animated.View>
 
       </Animated.View>
     </View>
@@ -310,18 +371,29 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   map: { width: '100%', height: '100%' },
   
-  morphingPanel: {
-    position: 'absolute',
+  mainPanelWrapper: {
     overflow: 'hidden', 
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
-    elevation: 10,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.5,
+    shadowRadius: 15,
+    elevation: 15,
+  },
+
+  forkWrapper: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  forkButton: {
+    width: 105,
+    height: 105,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   
   searchRow: {
-    height: 60, 
+    height: 70, 
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
@@ -345,7 +417,7 @@ const styles = StyleSheet.create({
   hiddenContent: {
     flex: 1,
     paddingHorizontal: 20,
-    paddingTop: 10,
+    paddingTop: 5,
   },
   filterSection: { marginBottom: 15 },
   filterTitle: {
