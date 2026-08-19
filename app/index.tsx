@@ -9,16 +9,31 @@ import {
   Easing,
   FlatList,
   Keyboard,
+  LayoutAnimation,
+  PanResponder,
+  Platform,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
+  UIManager,
   View
 } from 'react-native';
 import MapView, { Marker, Polyline } from 'react-native-maps';
 import Svg, { Circle } from 'react-native-svg';
 
+// Enable LayoutAnimation for Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
 const SCREEN_WIDTH = Dimensions.get('window').width;
+const SCREEN_HEIGHT = Dimensions.get('window').height;
+
+const CUISINES = [
+  'American', 'Chinese', 'Italian', 'Mexican', 'Japanese', 
+  'Fast Food', 'Pizza', 'Seafood', 'Healthy', 'Cafe', 'Vegan'
+];
 
 export default function App() {
   const [search, setSearch] = useState('');
@@ -36,16 +51,59 @@ export default function App() {
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
   const [isResultsExpanded, setIsResultsExpanded] = useState(false);
 
+  const [searchRadius, setSearchRadius] = useState(4828); 
+  const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
+  
+  // Dropdown states
+  const [isRadiusOpen, setIsRadiusOpen] = useState(false);
+  const [isCuisineOpen, setIsCuisineOpen] = useState(false);
+
   const GEOAPIFY_KEY = process.env.EXPO_PUBLIC_GEOAPIFY_KEY;
 
-  // --- Safe, Isolated Animation Controllers ---
+  // --- Animation Controllers ---
   const searchAnim = useRef(new Animated.Value(0)).current;  
   const resultsAnim = useRef(new Animated.Value(0)).current; 
+  const resultsDragAnim = useRef(new Animated.Value(0)).current; 
   
   const loadingProgress = useRef(new Animated.Value(0)).current;
   const spinAnim = useRef(new Animated.Value(0)).current;
   
   const searchInputRef = useRef<TextInput>(null);
+
+  // --- PanResponder for Drag-to-Expand ---
+  const MAX_DRAG = 450; 
+  const currentDrag = useRef(0);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_, gestureState) => Math.abs(gestureState.dy) > 10,
+      onPanResponderGrant: () => {
+        resultsDragAnim.setOffset(currentDrag.current);
+        resultsDragAnim.setValue(0);
+      },
+      onPanResponderMove: (_, gestureState) => {
+        resultsDragAnim.setValue(-gestureState.dy);
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        resultsDragAnim.flattenOffset();
+        const estimatedVal = currentDrag.current - gestureState.dy;
+
+        if (estimatedVal > MAX_DRAG / 2 || gestureState.vy < -0.8) {
+          Animated.spring(resultsDragAnim, {
+            toValue: MAX_DRAG,
+            friction: 8,
+            useNativeDriver: false
+          }).start(() => { currentDrag.current = MAX_DRAG; });
+        } else {
+          Animated.spring(resultsDragAnim, {
+            toValue: 0,
+            friction: 8,
+            useNativeDriver: false
+          }).start(() => { currentDrag.current = 0; });
+        }
+      }
+    })
+  ).current;
 
   useEffect(() => {
     async function getCurrentLocation() {
@@ -85,10 +143,30 @@ export default function App() {
     }).start();
   }, [loading]);
 
+  const toggleCuisine = (cuisine: string) => {
+    setSelectedCuisines(prev => 
+      prev.includes(cuisine) 
+        ? prev.filter(c => c !== cuisine)
+        : [...prev, cuisine]
+    );
+  };
+
+  const toggleRadiusDropdown = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setIsRadiusOpen(!isRadiusOpen);
+  };
+
+  const toggleCuisineDropdown = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setIsCuisineOpen(!isCuisineOpen);
+  };
+
   const expandSearchPanel = () => {
     if (isResultsExpanded) {
       setIsResultsExpanded(false);
       resultsAnim.setValue(0); 
+      resultsDragAnim.setValue(0);
+      currentDrag.current = 0;
     }
 
     setIsSearchExpanded(true);
@@ -138,20 +216,27 @@ export default function App() {
       duration: 500,
       easing: Easing.inOut(Easing.cubic),
       useNativeDriver: false,
-    }).start(() => setIsResultsExpanded(false));
+    }).start(() => {
+      setIsResultsExpanded(false);
+      resultsDragAnim.setValue(0);
+      currentDrag.current = 0;
+      setIsRadiusOpen(false);
+      setIsCuisineOpen(false);
+    });
   };
 
-  // --- Bulletproof Math Engine ---
+  // --- Math Engine (Raised for Keyboard Clearance) ---
   
-  // RESTORED: This raises the box exactly 450px and settles at 332.5px offset, giving a total bottom of 372.5px. 
-  // It perfectly clears the iOS keyboard without flying into orbit.
-  const searchBottomOffset = searchAnim.interpolate({ inputRange: [0, 1, 2], outputRange: [0, 450, 332.5] }); 
+  // Raised the expanded search bottom offset to 360 (Total bottom clearance: 400px)
+  const searchBottomOffset = searchAnim.interpolate({ inputRange: [0, 1, 2], outputRange: [0, 450, 360] }); 
   const resultsBottomOffset = resultsAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0] }); 
   const panelBottom = Animated.add(new Animated.Value(40), Animated.add(searchBottomOffset, resultsBottomOffset));
 
-  const searchHeightOffset = searchAnim.interpolate({ inputRange: [0, 1, 2], outputRange: [0, 0, 235] }); 
-  const resultsHeightOffset = resultsAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 195] }); 
-  const panelHeight = Animated.add(new Animated.Value(105), Animated.add(searchHeightOffset, resultsHeightOffset));
+  const searchHeightOffset = searchAnim.interpolate({ inputRange: [0, 1, 2], outputRange: [0, 0, 200] }); 
+  const resultsHeightOffset = resultsAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 180] }); // Base height for results
+  
+  const basePanelHeight = Animated.add(new Animated.Value(105), Animated.add(searchHeightOffset, resultsHeightOffset));
+  const panelHeight = Animated.add(basePanelHeight, resultsDragAnim);
 
   const searchWidthOffset = searchAnim.interpolate({ inputRange: [0, 1, 2], outputRange: [0, 0, (SCREEN_WIDTH * 0.92) - 105] });
   const resultsWidthOffset = resultsAnim.interpolate({ inputRange: [0, 1], outputRange: [0, (SCREEN_WIDTH * 0.92) - 105] });
@@ -161,7 +246,6 @@ export default function App() {
   const resultsRadiusOffset = resultsAnim.interpolate({ inputRange: [0, 1], outputRange: [0, -28.5] });
   const panelRadius = Animated.add(new Animated.Value(52.5), Animated.add(searchRadiusOffset, resultsRadiusOffset));
 
-  // Opacity interpolations
   const searchContentOpacity = searchAnim.interpolate({ inputRange: [0, 1, 1.5, 2], outputRange: [0, 0, 0, 1] });
   const resultsContentOpacity = resultsAnim.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0, 0, 1] });
 
@@ -232,6 +316,19 @@ export default function App() {
       });
 
       try {
+        let categoriesQuery = 'catering.fast_food,catering.restaurant'; 
+        
+        if (selectedCuisines.length > 0) {
+          categoriesQuery = selectedCuisines.map(cuisine => {
+            if (cuisine === 'Fast Food') return 'catering.fast_food';
+            if (cuisine === 'Cafe') return 'catering.cafe';
+            if (cuisine === 'Pizza') return 'catering.restaurant.pizza';
+            if (cuisine === 'Seafood') return 'catering.restaurant.seafood';
+            if (cuisine === 'Healthy') return 'catering.restaurant.healthy_food';
+            return `catering.restaurant.${cuisine.toLowerCase()}`;
+          }).join(',');
+        }
+
         await new Promise(resolve => setTimeout(resolve, 3000));
 
         const routeResponse = await fetch(
@@ -249,7 +346,7 @@ export default function App() {
         }
 
         const placesResponse = await fetch(
-          `https://api.geoapify.com/v2/places?categories=catering.fast_food,catering.restaurant&filter=circle:${lon},${lat},4828&limit=20&apiKey=${GEOAPIFY_KEY}`
+          `https://api.geoapify.com/v2/places?categories=${categoriesQuery}&filter=circle:${lon},${lat},${searchRadius}&limit=20&apiKey=${GEOAPIFY_KEY}`
         );
         const placesData = await placesResponse.json();
         if (placesData.features) setFoodSpots(placesData.features);
@@ -271,6 +368,10 @@ export default function App() {
 
     });
   };
+
+  // Helper Labels for Closed Dropdowns
+  const radiusLabel = {1609: '1 Mi', 4828: '3 Mi', 8046: '5 Mi'}[searchRadius] || '3 Mi';
+  const cuisineLabel = selectedCuisines.length > 0 ? `${selectedCuisines.length} Selected` : 'Any';
 
   return (
     <View style={styles.container}>
@@ -314,7 +415,7 @@ export default function App() {
           opacity: solidColorOpacity 
         }]} />
         
-        {/* Layer 1: The Morphing Center Icon (Fork & Spinner) */}
+        {/* Layer 1: The Morphing Center Icon */}
         <Animated.View 
           style={[styles.forkWrapper, { opacity: centerIconOpacity }]} 
           pointerEvents={isSearchExpanded || isResultsExpanded ? 'none' : 'auto'}
@@ -328,14 +429,7 @@ export default function App() {
             <Animated.View style={{ position: 'absolute', opacity: spinnerOpacity, transform: [{ scaleX: spinnerScaleX }, { scaleY: spinnerScaleY }] }}>
               <Animated.View style={{ transform: [{ rotate: spinnerRotate }, { scale: spinnerPulseScale }] }}>
                 <Svg width="50" height="50" viewBox="0 0 50 50">
-                  <Circle 
-                    cx="25" cy="25" r="20" 
-                    stroke="#ffffff" 
-                    strokeWidth="4" 
-                    fill="none" 
-                    strokeDasharray="26 15.888" 
-                    strokeLinecap="round" 
-                  />
+                  <Circle cx="25" cy="25" r="20" stroke="#ffffff" strokeWidth="4" fill="none" strokeDasharray="26 15.888" strokeLinecap="round" />
                 </Svg>
               </Animated.View>
             </Animated.View>
@@ -389,21 +483,88 @@ export default function App() {
           </View>
         </Animated.View>
 
-        {/* Layer 3: The Bottom Results Rectangle */}
+        {/* Layer 3: The Bottom Results Rectangle (With Modern Sleek Dropdowns) */}
         <Animated.View 
           style={[StyleSheet.absoluteFill, { opacity: resultsContentOpacity }]} 
           pointerEvents={isResultsExpanded ? 'auto' : 'none'}
         >
-          <View style={styles.resultsHeader}>
-            <Text style={styles.resultsTitle}>Nearby Spots</Text>
-            <TouchableOpacity onPress={closeResultsPanel} style={styles.closeBtn}>
-              <Ionicons name="close-circle" size={28} color="#aaa" />
-            </TouchableOpacity>
+          {/* Draggable Header */}
+          <View {...panResponder.panHandlers} style={{ backgroundColor: 'transparent' }}>
+            <View style={styles.dragHandle} />
+            <View style={styles.resultsHeader}>
+              <Text style={styles.resultsTitle}>Nearby Spots</Text>
+              <TouchableOpacity onPress={closeResultsPanel} style={styles.closeBtn}>
+                <Ionicons name="close-circle" size={28} color="#aaa" />
+              </TouchableOpacity>
+            </View>
           </View>
 
-          <View style={styles.placeholderContainer}>
-            <Ionicons name="restaurant-outline" size={36} color="#aaa" style={styles.placeholderIcon} />
-            <Text style={styles.placeholderText}>Restaurant results will appear here</Text>
+          <View style={styles.resultsContentWrapper}>
+            
+            {/* Modern Sleek Radius Dropdown */}
+            <TouchableOpacity style={styles.dropdownHeader} onPress={toggleRadiusDropdown} activeOpacity={0.7}>
+              <Text style={styles.dropdownTitle}>Search Radius</Text>
+              <View style={styles.dropdownValueRow}>
+                <Text style={styles.dropdownValue}>{radiusLabel}</Text>
+                <Ionicons name={isRadiusOpen ? 'chevron-up' : 'chevron-down'} size={16} color="#aaa" />
+              </View>
+            </TouchableOpacity>
+
+            {isRadiusOpen && (
+              <View style={styles.dropdownContent}>
+                <View style={styles.pillContainer}>
+                  {[
+                    { label: '1 Mi', value: 1609 },
+                    { label: '3 Mi', value: 4828 },
+                    { label: '5 Mi', value: 8046 }
+                  ].map((pill) => (
+                    <TouchableOpacity
+                      key={pill.label}
+                      style={[styles.filterPill, searchRadius === pill.value && styles.filterPillActive]}
+                      onPress={() => setSearchRadius(pill.value)}
+                    >
+                      <Text style={[styles.filterPillText, searchRadius === pill.value && styles.filterPillTextActive]}>
+                        {pill.label}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {/* Modern Sleek Cuisine Dropdown */}
+            <TouchableOpacity style={styles.dropdownHeader} onPress={toggleCuisineDropdown} activeOpacity={0.7}>
+              <Text style={styles.dropdownTitle}>Cuisines</Text>
+              <View style={styles.dropdownValueRow}>
+                <Text style={styles.dropdownValue}>{cuisineLabel}</Text>
+                <Ionicons name={isCuisineOpen ? 'chevron-up' : 'chevron-down'} size={16} color="#aaa" />
+              </View>
+            </TouchableOpacity>
+
+            {isCuisineOpen && (
+              <View style={styles.dropdownContent}>
+                <View style={styles.wrappedPillContainer}>
+                  {CUISINES.map((cuisine) => (
+                    <TouchableOpacity
+                      key={cuisine}
+                      style={[styles.filterPill, selectedCuisines.includes(cuisine) && styles.filterPillActive]}
+                      onPress={() => toggleCuisine(cuisine)}
+                    >
+                      <Text style={[styles.filterPillText, selectedCuisines.includes(cuisine) && styles.filterPillTextActive]}>
+                        {cuisine}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            <View style={styles.placeholderContainer}>
+              <Ionicons name="restaurant-outline" size={36} color="#aaa" style={styles.placeholderIcon} />
+              <Text style={styles.placeholderText}>Restaurant results will appear here</Text>
+              <Text style={styles.placeholderSubText}>Drag up to expand</Text>
+            </View>
+
           </View>
         </Animated.View>
 
@@ -481,7 +642,78 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
 
-  // Results Styles
+  // Results & Sleek Dropdown Styles
+  resultsContentWrapper: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+  },
+  dropdownHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  dropdownTitle: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  dropdownValueRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  dropdownValue: {
+    color: '#0a84ff',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  dropdownContent: {
+    paddingHorizontal: 4,
+    paddingBottom: 15,
+    paddingTop: 5,
+  },
+  pillContainer: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  wrappedPillContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  filterPill: {
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  filterPillActive: {
+    backgroundColor: '#0a84ff',
+    borderColor: '#0a84ff',
+  },
+  filterPillText: {
+    fontWeight: '600',
+    color: '#bbb',
+  },
+  filterPillTextActive: { color: '#fff' },
+  
+  dragHandle: {
+    width: 40,
+    height: 5,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 3,
+    alignSelf: 'center',
+    marginTop: 10,
+    marginBottom: -10,
+  },
   resultsHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -513,5 +745,10 @@ const styles = StyleSheet.create({
     color: '#aaa',
     fontSize: 16,
     fontWeight: '500',
+  },
+  placeholderSubText: {
+    color: '#666',
+    fontSize: 14,
+    marginTop: 8,
   }
 });
