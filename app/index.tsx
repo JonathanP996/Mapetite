@@ -28,12 +28,43 @@ if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental
 }
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
-const SCREEN_HEIGHT = Dimensions.get('window').height;
 
 const CUISINES = [
-  'American', 'Chinese', 'Italian', 'Mexican', 'Japanese', 
-  'Fast Food', 'Pizza', 'Seafood', 'Healthy', 'Cafe', 'Vegan'
+  'Restaurant', 'Cafe', 'FastFood', 'Bakery', 'Brewery', 
+  'Pizza', 'Seafood'
 ];
+
+// --- POLYLINE DECODER FUNCTION ---
+// Unpacks encoded route strings from the Apple Maps API into latitude/longitude pairs
+const decodePolyline = (encoded: string) => {
+  let points = [];
+  let index = 0, len = encoded.length;
+  let lat = 0, lng = 0;
+
+  while (index < len) {
+    let b, shift = 0, result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    let dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+    lat += dlat;
+
+    shift = 0;
+    result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    let dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+    lng += dlng;
+
+    points.push({ latitude: (lat / 1E5), longitude: (lng / 1E5) });
+  }
+  return points;
+};
 
 export default function App() {
   const [search, setSearch] = useState('');
@@ -54,13 +85,11 @@ export default function App() {
   const [searchRadius, setSearchRadius] = useState(4828); 
   const [selectedCuisines, setSelectedCuisines] = useState<string[]>([]);
   
-  // Dropdown states
   const [isRadiusOpen, setIsRadiusOpen] = useState(false);
   const [isCuisineOpen, setIsCuisineOpen] = useState(false);
 
-  const GEOAPIFY_KEY = process.env.EXPO_PUBLIC_GEOAPIFY_KEY;
+  const APPLE_TOKEN = process.env.EXPO_PUBLIC_APPLE_MAPS_TOKEN;
 
-  // --- Animation Controllers ---
   const searchAnim = useRef(new Animated.Value(0)).current;  
   const resultsAnim = useRef(new Animated.Value(0)).current; 
   const resultsDragAnim = useRef(new Animated.Value(0)).current; 
@@ -70,7 +99,6 @@ export default function App() {
   
   const searchInputRef = useRef<TextInput>(null);
 
-  // --- PanResponder for Drag-to-Expand ---
   const MAX_DRAG = 450; 
   const currentDrag = useRef(0);
 
@@ -222,18 +250,17 @@ export default function App() {
       currentDrag.current = 0;
       setIsRadiusOpen(false);
       setIsCuisineOpen(false);
+      setRouteCoords([]);
+      setFoodSpots([]);
     });
   };
 
-  // --- Math Engine (Raised for Keyboard Clearance) ---
-  
-  // Raised the expanded search bottom offset to 360 (Total bottom clearance: 400px)
   const searchBottomOffset = searchAnim.interpolate({ inputRange: [0, 1, 2], outputRange: [0, 450, 360] }); 
   const resultsBottomOffset = resultsAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0] }); 
   const panelBottom = Animated.add(new Animated.Value(40), Animated.add(searchBottomOffset, resultsBottomOffset));
 
   const searchHeightOffset = searchAnim.interpolate({ inputRange: [0, 1, 2], outputRange: [0, 0, 200] }); 
-  const resultsHeightOffset = resultsAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 180] }); // Base height for results
+  const resultsHeightOffset = resultsAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 180] }); 
   
   const basePanelHeight = Animated.add(new Animated.Value(105), Animated.add(searchHeightOffset, resultsHeightOffset));
   const panelHeight = Animated.add(basePanelHeight, resultsDragAnim);
@@ -261,7 +288,6 @@ export default function App() {
   const blurOpacityResults = resultsAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
   const blurOpacity = Animated.add(blurOpacitySearch, blurOpacityResults);
 
-  // --- Orbit Loader Math ---
   const forkScaleX = loadingProgress.interpolate({ inputRange: [0, 0.5], outputRange: [1, 0.05], extrapolate: 'clamp' });
   const forkScaleY = loadingProgress.interpolate({ inputRange: [0, 0.5], outputRange: [1, 1], extrapolate: 'clamp' });
   const forkOpacity = loadingProgress.interpolate({ inputRange: [0, 0.49, 0.5], outputRange: [1, 1, 0], extrapolate: 'clamp' });
@@ -275,25 +301,51 @@ export default function App() {
 
   const handleTextChange = async (text: string) => {
     setSearch(text);
+    
     if (text.length < 3) {
       setSuggestions([]);
       return;
     }
+
+    // DEBUG CHECK 1: Do we have the token and location?
+    if (!APPLE_TOKEN) {
+      console.log("🔴 ERROR: APPLE_TOKEN is undefined! Check your .env file.");
+      return;
+    }
+    if (!region) {
+      console.log("🔴 ERROR: Waiting for GPS location before searching.");
+      return;
+    }
+
     try {
+      console.log(`🔵 Sending request to Apple Maps for: "${text}"`);
+      
       const response = await fetch(
-        `https://api.geoapify.com/v1/geocode/autocomplete?text=${encodeURIComponent(text)}&apiKey=${GEOAPIFY_KEY}`
+        `https://maps-api.apple.com/v1/searchAutocomplete?q=${encodeURIComponent(text)}&searchLocation=${region.latitude},${region.longitude}`,
+        { headers: { 'Authorization': `Bearer ${APPLE_TOKEN}` } }
       ); 
+      
       const data = await response.json();
-      if (data.features) setSuggestions(data.features);
+      
+      // DEBUG CHECK 2: What exactly did Apple send back?
+      console.log("🟢 Apple API Status:", response.status);
+      console.log("🟢 Apple API Response:", JSON.stringify(data, null, 2));
+
+      if (data.results) {
+        setSuggestions(data.results);
+      } else {
+        console.log("🟡 No 'results' array in Apple's response.");
+      }
+
     } catch (error) {
-      console.error('Autocomplete error:', error);
+      console.error('🔴 Fetch Request Failed completely:', error);
     }
   };
 
   const handleSelectSuggestion = async (item: any) => {
-    const [lon, lat] = item.geometry.coordinates;
-    const formattedAddress = item.properties.formatted;
-    setSearch(formattedAddress);
+    // 1. Grab the name and update the search bar
+    const displayString = item.displayLines?.join(', ') || "Unknown Location";
+    setSearch(displayString);
     setSuggestions([]); 
     
     Keyboard.dismiss();
@@ -308,50 +360,63 @@ export default function App() {
 
       if (!region) { setLoading(false); return; }
       
-      setRegion({
-        latitude: (region.latitude + lat) / 2,
-        longitude: (region.longitude + lon) / 2,
-        latitudeDelta: Math.abs(region.latitude - lat) * 1.5 || 0.05,
-        longitudeDelta: Math.abs(region.longitude - lon) * 1.5 || 0.05,
-      });
-
       try {
-        let categoriesQuery = 'catering.fast_food,catering.restaurant'; 
-        
-        if (selectedCuisines.length > 0) {
-          categoriesQuery = selectedCuisines.map(cuisine => {
-            if (cuisine === 'Fast Food') return 'catering.fast_food';
-            if (cuisine === 'Cafe') return 'catering.cafe';
-            if (cuisine === 'Pizza') return 'catering.restaurant.pizza';
-            if (cuisine === 'Seafood') return 'catering.restaurant.seafood';
-            if (cuisine === 'Healthy') return 'catering.restaurant.healthy_food';
-            return `catering.restaurant.${cuisine.toLowerCase()}`;
-          }).join(',');
-        }
+        // --- MASSIVE SPEED OPTIMIZATION ---
+        // Apple's Autocomplete gives us the coordinates directly in the suggestion!
+        // We skip the Geocode API call entirely.
+        const destLat = item.location.latitude;
+        const destLon = item.location.longitude;
 
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        setRegion({
+          latitude: (region.latitude + destLat) / 2,
+          longitude: (region.longitude + destLon) / 2,
+          latitudeDelta: Math.abs(region.latitude - destLat) * 1.5 || 0.05,
+          longitudeDelta: Math.abs(region.longitude - destLon) * 1.5 || 0.05,
+        });
 
+        // 2. Fetch the Directions
         const routeResponse = await fetch(
-          `https://api.geoapify.com/v1/routing?waypoints=${region.latitude},${region.longitude}|${lat},${lon}&mode=drive&apiKey=${GEOAPIFY_KEY}`
+          `https://maps-api.apple.com/v1/directions?origin=${region.latitude},${region.longitude}&destination=${destLat},${destLon}`,
+          { headers: { 'Authorization': `Bearer ${APPLE_TOKEN}` } }
         );
         const routeData = await routeResponse.json();
 
-        if (routeData.features && routeData.features.length > 0) {
-          const rawCoords = routeData.features[0].geometry.coordinates[0];
-          const formattedCoords = rawCoords.map((coord: any[]) => ({
-            latitude: coord[1],
-            longitude: coord[0]
-          }));
-          setRouteCoords(formattedCoords);
+        // --- THE POLYLINE FIX ---
+        // Apple Maps doesn't encrypt polylines! They give us raw coordinate arrays.
+        if (routeData.stepPaths) {
+          // Flatten the array of arrays into a single list of {latitude, longitude} objects
+          const decodedCoords = routeData.stepPaths.flat();
+          setRouteCoords(decodedCoords);
+        } else {
+          setRouteCoords([]);
         }
 
+        // 3. Fetch the Nearby Spots
+        const categoriesQuery = selectedCuisines.length > 0 ? selectedCuisines.join(',') : 'Restaurant';
+
         const placesResponse = await fetch(
-          `https://api.geoapify.com/v2/places?categories=${categoriesQuery}&filter=circle:${lon},${lat},${searchRadius}&limit=20&apiKey=${GEOAPIFY_KEY}`
+          `https://maps-api.apple.com/v1/search?q=${categoriesQuery}&searchLocation=${destLat},${destLon}&resultTypeFilter=Poi`,
+          { headers: { 'Authorization': `Bearer ${APPLE_TOKEN}` } }
         );
         const placesData = await placesResponse.json();
-        if (placesData.features) setFoodSpots(placesData.features);
+        
+        if (placesData.results) {
+          const formattedSpots = placesData.results
+            .filter((poi: any) => poi.coordinate && poi.coordinate.latitude != null && poi.coordinate.longitude != null)
+            .map((poi: any) => ({
+              coordinate: {
+                latitude: poi.coordinate.latitude,
+                longitude: poi.coordinate.longitude
+              },
+              name: poi.displayLines?.[0] || "Unknown Spot",
+              address: poi.displayLines?.[1] || ""
+            }));
+            
+          setFoodSpots(formattedSpots);
+        }
       } catch (error) {
-        Alert.alert('Error', 'Could not calculate route or fetch places.');
+        Alert.alert('Error', 'Apple Maps request failed.');
+        console.error(error);
       }
       
       setLoading(false);
@@ -368,8 +433,6 @@ export default function App() {
 
     });
   };
-
-  // Helper Labels for Closed Dropdowns
   const radiusLabel = {1609: '1 Mi', 4828: '3 Mi', 8046: '5 Mi'}[searchRadius] || '3 Mi';
   const cuisineLabel = selectedCuisines.length > 0 ? `${selectedCuisines.length} Selected` : 'Any';
 
@@ -381,17 +444,14 @@ export default function App() {
           {routeCoords.length > 0 && (
             <Polyline coordinates={routeCoords} strokeColor="#007AFF" strokeWidth={5} />
           )}
-          {foodSpots.map((spot, index) => {
-            const [spotLon, spotLat] = spot.geometry.coordinates;
-            return (
-              <Marker
-                key={index}
-                coordinate={{ latitude: spotLat, longitude: spotLon }}
-                title={spot.properties.name || "Food Spot"}
-                description={spot.properties.street || "Unknown address"}
-              />
-            );
-          })}
+          {foodSpots.map((spot, index) => (
+            <Marker
+              key={index}
+              coordinate={spot.coordinate}
+              title={spot.name}
+              description={spot.address}
+            />
+          ))}
         </MapView> 
       )}
 
@@ -415,7 +475,6 @@ export default function App() {
           opacity: solidColorOpacity 
         }]} />
         
-        {/* Layer 1: The Morphing Center Icon */}
         <Animated.View 
           style={[styles.forkWrapper, { opacity: centerIconOpacity }]} 
           pointerEvents={isSearchExpanded || isResultsExpanded ? 'none' : 'auto'}
@@ -437,7 +496,6 @@ export default function App() {
           </TouchableOpacity>
         </Animated.View>
 
-        {/* Layer 2: The Expanded Search Bar & Suggestions */}
         <Animated.View 
           style={[StyleSheet.absoluteFill, { opacity: searchContentOpacity }]} 
           pointerEvents={isSearchExpanded ? 'auto' : 'none'}
@@ -473,7 +531,7 @@ export default function App() {
                       onPress={() => handleSelectSuggestion(item)}
                     >
                       <Text style={styles.suggestionText} numberOfLines={1}>
-                        {item.properties.formatted}
+                        {item.displayLines.join(', ')}
                       </Text>
                     </TouchableOpacity>
                   )}
@@ -483,12 +541,10 @@ export default function App() {
           </View>
         </Animated.View>
 
-        {/* Layer 3: The Bottom Results Rectangle (With Modern Sleek Dropdowns) */}
         <Animated.View 
           style={[StyleSheet.absoluteFill, { opacity: resultsContentOpacity }]} 
           pointerEvents={isResultsExpanded ? 'auto' : 'none'}
         >
-          {/* Draggable Header */}
           <View {...panResponder.panHandlers} style={{ backgroundColor: 'transparent' }}>
             <View style={styles.dragHandle} />
             <View style={styles.resultsHeader}>
@@ -501,9 +557,8 @@ export default function App() {
 
           <View style={styles.resultsContentWrapper}>
             
-            {/* Modern Sleek Radius Dropdown */}
             <TouchableOpacity style={styles.dropdownHeader} onPress={toggleRadiusDropdown} activeOpacity={0.7}>
-              <Text style={styles.dropdownTitle}>Search Radius</Text>
+              <Text style={styles.dropdownTitle}>Search Radius (⚠️ Illustrative)</Text>
               <View style={styles.dropdownValueRow}>
                 <Text style={styles.dropdownValue}>{radiusLabel}</Text>
                 <Ionicons name={isRadiusOpen ? 'chevron-up' : 'chevron-down'} size={16} color="#aaa" />
@@ -532,9 +587,8 @@ export default function App() {
               </View>
             )}
 
-            {/* Modern Sleek Cuisine Dropdown */}
             <TouchableOpacity style={styles.dropdownHeader} onPress={toggleCuisineDropdown} activeOpacity={0.7}>
-              <Text style={styles.dropdownTitle}>Cuisines</Text>
+              <Text style={styles.dropdownTitle}>Categories</Text>
               <View style={styles.dropdownValueRow}>
                 <Text style={styles.dropdownValue}>{cuisineLabel}</Text>
                 <Ionicons name={isCuisineOpen ? 'chevron-up' : 'chevron-down'} size={16} color="#aaa" />
@@ -559,10 +613,30 @@ export default function App() {
               </View>
             )}
 
-            <View style={styles.placeholderContainer}>
-              <Ionicons name="restaurant-outline" size={36} color="#aaa" style={styles.placeholderIcon} />
-              <Text style={styles.placeholderText}>Restaurant results will appear here</Text>
-              <Text style={styles.placeholderSubText}>Drag up to expand</Text>
+            {/* --- NEW: FlatList to render the Restaurant Cards --- */}
+            <View style={styles.listWrapper}>
+              {foodSpots.length === 0 ? (
+                <View style={styles.placeholderContainer}>
+                  <Ionicons name="restaurant-outline" size={36} color="#aaa" style={styles.placeholderIcon} />
+                  <Text style={styles.placeholderText}>No spots found nearby.</Text>
+                </View>
+              ) : (
+                <FlatList
+                  data={foodSpots}
+                  keyExtractor={(item, index) => index.toString()}
+                  contentContainerStyle={{ paddingBottom: 20 }}
+                  showsVerticalScrollIndicator={false}
+                  renderItem={({ item }) => (
+                    <View style={styles.spotCard}>
+                      <View style={styles.spotInfo}>
+                        <Text style={styles.spotName} numberOfLines={1}>{item.name}</Text>
+                        <Text style={styles.spotAddress} numberOfLines={2}>{item.address}</Text>
+                      </View>
+                      <Ionicons name="chevron-forward" size={20} color="#666" />
+                    </View>
+                  )}
+                />
+              )}
             </View>
 
           </View>
@@ -642,7 +716,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
   },
 
-  // Results & Sleek Dropdown Styles
   resultsContentWrapper: {
     flex: 1,
     paddingHorizontal: 20,
@@ -662,6 +735,7 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     fontSize: 15,
     fontWeight: '600',
+    flex: 1,
   },
   dropdownValueRow: {
     flexDirection: 'row',
@@ -732,6 +806,35 @@ const styles = StyleSheet.create({
   closeBtn: {
     padding: 5,
   },
+  
+  // --- NEW: Styles for the Restaurant Cards ---
+  listWrapper: {
+    flex: 1,
+    marginTop: 10,
+  },
+  spotCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 10,
+  },
+  spotInfo: {
+    flex: 1,
+    paddingRight: 10,
+  },
+  spotName: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  spotAddress: {
+    color: '#aaa',
+    fontSize: 13,
+  },
   placeholderContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -745,10 +848,5 @@ const styles = StyleSheet.create({
     color: '#aaa',
     fontSize: 16,
     fontWeight: '500',
-  },
-  placeholderSubText: {
-    color: '#666',
-    fontSize: 14,
-    marginTop: 8,
   }
 });
