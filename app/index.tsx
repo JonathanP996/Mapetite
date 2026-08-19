@@ -88,8 +88,26 @@ export default function App() {
   const [isRadiusOpen, setIsRadiusOpen] = useState(false);
   const [isCuisineOpen, setIsCuisineOpen] = useState(false);
 
-  const APPLE_TOKEN = process.env.EXPO_PUBLIC_APPLE_MAPS_TOKEN;
+  // REMOVE THIS:
+  // const APPLE_TOKEN = process.env.EXPO_PUBLIC_APPLE_MAPS_TOKEN;
 
+  // ADD THIS:
+  const [appleToken, setAppleToken] = useState<string | null>(null);
+  useEffect(() => {
+    async function fetchAppleToken() {
+      try {
+        const response = await fetch('https://mapetite-server.vercel.app/api/token');
+        const data = await response.json();
+        if (data.accessToken) {
+          setAppleToken(data.accessToken);
+          console.log("🟢 Apple Token successfully fetched from Vercel!");
+        }
+      } catch (error) {
+        console.error("🔴 Failed to fetch token from Vercel:", error);
+      }
+    }
+    fetchAppleToken();
+  }, []);
   const searchAnim = useRef(new Animated.Value(0)).current;  
   const resultsAnim = useRef(new Animated.Value(0)).current; 
   const resultsDragAnim = useRef(new Animated.Value(0)).current; 
@@ -308,8 +326,9 @@ export default function App() {
     }
 
     // DEBUG CHECK 1: Do we have the token and location?
-    if (!APPLE_TOKEN) {
-      console.log("🔴 ERROR: APPLE_TOKEN is undefined! Check your .env file.");
+    // DEBUG CHECK 1: Do we have the token and location?
+    if (!appleToken) {
+      console.log("🔴 ERROR: Waiting for dynamic Apple Token.");
       return;
     }
     if (!region) {
@@ -322,8 +341,8 @@ export default function App() {
       
       const response = await fetch(
         `https://maps-api.apple.com/v1/searchAutocomplete?q=${encodeURIComponent(text)}&searchLocation=${region.latitude},${region.longitude}`,
-        { headers: { 'Authorization': `Bearer ${APPLE_TOKEN}` } }
-      ); 
+        { headers: { 'Authorization': `Bearer ${appleToken}` } }
+      );
       
       const data = await response.json();
       
@@ -377,7 +396,17 @@ export default function App() {
         // 2. Fetch the Directions
         const routeResponse = await fetch(
           `https://maps-api.apple.com/v1/directions?origin=${region.latitude},${region.longitude}&destination=${destLat},${destLon}`,
-          { headers: { 'Authorization': `Bearer ${APPLE_TOKEN}` } }
+          { headers: { 'Authorization': `Bearer ${appleToken}` } }
+        );
+
+        // ... 
+
+        // 3. Fetch the Nearby Spots
+        const categoriesQuery = selectedCuisines.length > 0 ? selectedCuisines.join(',') : 'Restaurant';
+
+        const placesResponse = await fetch(
+          `https://maps-api.apple.com/v1/search?q=${categoriesQuery}&searchLocation=${destLat},${destLon}&resultTypeFilter=Poi`,
+          { headers: { 'Authorization': `Bearer ${appleToken}` } }
         );
         const routeData = await routeResponse.json();
 
@@ -391,13 +420,6 @@ export default function App() {
           setRouteCoords([]);
         }
 
-        // 3. Fetch the Nearby Spots
-        const categoriesQuery = selectedCuisines.length > 0 ? selectedCuisines.join(',') : 'Restaurant';
-
-        const placesResponse = await fetch(
-          `https://maps-api.apple.com/v1/search?q=${categoriesQuery}&searchLocation=${destLat},${destLon}&resultTypeFilter=Poi`,
-          { headers: { 'Authorization': `Bearer ${APPLE_TOKEN}` } }
-        );
         const placesData = await placesResponse.json();
         
         if (placesData.results) {
