@@ -4,15 +4,19 @@ import { BlurView } from 'expo-blur';
 import * as Location from 'expo-location';
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Alert,
   Animated,
   Dimensions,
   Easing,
   FlatList,
+  Image,
   Keyboard,
   LayoutAnimation,
+  Linking,
   PanResponder,
   Platform,
+  ScrollView,
   StyleSheet,
   Switch,
   Text,
@@ -83,15 +87,32 @@ const getDistanceInMeters = (lat1: number, lon1: number, lat2: number, lon2: num
 // --- DETOUR CALCULATOR ---
 const getDistanceToRoute = (spotLat: number, spotLon: number, routeCoords: any[]) => {
   let minDistance = Infinity;
-  // Find the closest coordinate on the blue line to this restaurant
   for (let i = 0; i < routeCoords.length; i++) {
     const dist = getDistanceInMeters(spotLat, spotLon, routeCoords[i].latitude, routeCoords[i].longitude);
     if (dist < minDistance) minDistance = dist;
   }
-  return minDistance; // Returns the one-way distance to the route in meters
+  return minDistance;
+};
+
+// --- NATIVE APPLE POI RECREATION ---
+const getMarkerDesign = (category: string) => {
+  const pinColor = '#0a84ff';
+
+  switch (category) {
+    case 'Cafe': return { icon: 'cafe', color: pinColor };
+    case 'Bakery': return { icon: 'nutrition', color: pinColor };
+    case 'Brewery': 
+    case 'Nightlife': return { icon: 'beer', color: pinColor };
+    case 'Restaurant':
+    default: return { icon: 'restaurant', color: pinColor }; 
+  }
 };
 
 export default function App() {
+  const [selectedSpot, setSelectedSpot] = useState<any | null>(null);
+  const [spotDetails, setSpotDetails] = useState<any | null>(null);
+  const [loadingDetails, setLoadingDetails] = useState(false);
+
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<any[]>([]);
@@ -105,7 +126,6 @@ export default function App() {
   } | undefined>(undefined);
 
   const [recentSearches, setRecentSearches] = useState<any[]>([]);
-  // --- NEW: Track the current destination for active filtering ---
   const [currentDestination, setCurrentDestination] = useState<{latitude: number, longitude: number} | null>(null);
 
   const [isSearchExpanded, setIsSearchExpanded] = useState(false);
@@ -115,7 +135,6 @@ export default function App() {
   const [isCuisineOpen, setIsCuisineOpen] = useState(false);
 
   const [appleToken, setAppleToken] = useState<string | null>(null);
-
   const [isSortByTime, isSortByTimeSet] = useState(false);
   
   useEffect(() => {
@@ -133,7 +152,7 @@ export default function App() {
     fetchAppleToken();
   }, []);
 
-  // --- NEW: Load Recent Searches ---
+  // --- Load Recent Searches ---
   useEffect(() => {
     async function loadRecentSearches() {
       try {
@@ -208,12 +227,48 @@ export default function App() {
     }).start();
   }, [loading]);
 
-  // --- NEW: Automatically re-search when the filter changes ---
+  // --- Automatically re-search when the cuisine filter changes ---
   useEffect(() => {
     if (currentDestination && routeCoords.length > 0) {
       searchAlongCorridor(currentDestination.latitude, currentDestination.longitude, routeCoords, selectedCuisines);
     }
   }, [selectedCuisines]); 
+
+  // --- FETCH GOOGLE PLACE DETAILS FROM VERCEL ---
+  const handleSelectSpot = async (spot: any) => {
+    setSelectedSpot(spot);
+    setSpotDetails(null);
+    setLoadingDetails(true);
+
+    try {
+      const url = `https://mapetite-server.vercel.app/api/place-details?name=${encodeURIComponent(spot.name)}&lat=${spot.coordinate.latitude}&lng=${spot.coordinate.longitude}&address=${encodeURIComponent(spot.address || '')}`;
+      const response = await fetch(url);
+      const data = await response.json();
+
+      if (response.ok) {
+        setSpotDetails(data);
+      } else {
+        console.warn('Place details warning:', data.message || data.error);
+      }
+    } catch (error) {
+      console.error('Failed to fetch place details:', error);
+    } finally {
+      setLoadingDetails(false);
+    }
+  };
+
+  // --- NATIVE NAVIGATION LAUNCHERS ---
+  const openInAppleMaps = (lat: number, lng: number, name: string) => {
+    const url = `http://maps.apple.com/?daddr=${lat},${lng}&dirflg=d&t=m`;
+    Linking.openURL(url);
+  };
+
+  const openInGoogleMaps = (lat: number, lng: number) => {
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+    Linking.openURL(url).catch(() => {
+      Linking.openURL(`https://www.google.com/maps/search/?api=1&query=${lat},${lng}`);
+    });
+  };
 
   const toggleCuisine = (cuisine: string) => {
     setSelectedCuisines(prev => prev.includes(cuisine) ? prev.filter(c => c !== cuisine) : [...prev, cuisine]);
@@ -312,113 +367,111 @@ export default function App() {
     }
   };
 
-// --- NEW: Reusable function to fetch spots along a route ---
-const searchAlongCorridor = async (destLat: number, destLon: number, coords: {latitude: number, longitude: number}[], targetCuisines: string[]) => {
-  if (!appleToken) return;
-  setLoading(true);
+  // --- Corridor Search Along Route ---
+  const searchAlongCorridor = async (destLat: number, destLon: number, coords: {latitude: number, longitude: number}[], targetCuisines: string[]) => {
+    if (!appleToken) return;
+    setLoading(true);
 
-  const categoriesQuery = targetCuisines.length > 0 ? targetCuisines.join(',') : 'Restaurant';
-  const breadcrumbs = [];
+    const categoriesQuery = targetCuisines.length > 0 ? targetCuisines.join(',') : 'Restaurant';
+    const breadcrumbs = [];
 
-  if (coords.length > 0) {
-    let totalDistance = 0;
-    const cumulativeDistances = [0]; 
-    
-    for (let i = 1; i < coords.length; i++) {
-      const dist = getDistanceInMeters(
-        coords[i-1].latitude, coords[i-1].longitude,
-        coords[i].latitude, coords[i].longitude
+    if (coords.length > 0) {
+      let totalDistance = 0;
+      const cumulativeDistances = [0]; 
+      
+      for (let i = 1; i < coords.length; i++) {
+        const dist = getDistanceInMeters(
+          coords[i-1].latitude, coords[i-1].longitude,
+          coords[i].latitude, coords[i].longitude
+        );
+        totalDistance += dist;
+        cumulativeDistances.push(totalDistance);
+      }
+
+      const totalDistanceInMiles = totalDistance / 1609.34;
+      let intervalPercentage;
+      if (totalDistanceInMiles <= 4) intervalPercentage = 0.30; 
+      else if (totalDistanceInMiles <= 10) intervalPercentage = 0.20; 
+      else intervalPercentage = 0.10; 
+
+      const dynamicInterval = totalDistance * intervalPercentage;
+
+      breadcrumbs.push(coords[0]); 
+      let nextTarget = dynamicInterval;
+      for (let i = 1; i < coords.length; i++) {
+        if (cumulativeDistances[i] >= nextTarget) {
+          breadcrumbs.push(coords[i]);
+          nextTarget += dynamicInterval; 
+        }
+      }
+      breadcrumbs.push({ latitude: destLat, longitude: destLon });
+    } else {
+      breadcrumbs.push({ latitude: destLat, longitude: destLon });
+    }
+
+    const safeBreadcrumbs = breadcrumbs.slice(0, 15);
+
+    try {
+      const fetchPromises = safeBreadcrumbs.map(point => 
+        fetch(
+          `https://maps-api.apple.com/v1/search?q=${categoriesQuery}&searchLocation=${point.latitude},${point.longitude}&resultTypeFilter=Poi`,
+          { headers: { 'Authorization': `Bearer ${appleToken}` } }
+        ).then(res => res.json())
       );
-      totalDistance += dist;
-      cumulativeDistances.push(totalDistance);
-    }
 
-    const totalDistanceInMiles = totalDistance / 1609.34;
-    let intervalPercentage;
-    if (totalDistanceInMiles <= 4) intervalPercentage = 0.30; 
-    else if (totalDistanceInMiles <= 10) intervalPercentage = 0.20; 
-    else intervalPercentage = 0.10; 
+      const resultsArray = await Promise.all(fetchPromises);
+      const uniqueSpotsMap = new Map();
 
-    const dynamicInterval = totalDistance * intervalPercentage;
-
-    breadcrumbs.push(coords[0]); 
-    let nextTarget = dynamicInterval;
-    for (let i = 1; i < coords.length; i++) {
-      if (cumulativeDistances[i] >= nextTarget) {
-        breadcrumbs.push(coords[i]);
-        nextTarget += dynamicInterval; 
-      }
-    }
-    breadcrumbs.push({ latitude: destLat, longitude: destLon });
-  } else {
-    breadcrumbs.push({ latitude: destLat, longitude: destLon });
-  }
-
-  const safeBreadcrumbs = breadcrumbs.slice(0, 15);
-
-  try {
-    const fetchPromises = safeBreadcrumbs.map(point => 
-      fetch(
-        `https://maps-api.apple.com/v1/search?q=${categoriesQuery}&searchLocation=${point.latitude},${point.longitude}&resultTypeFilter=Poi`,
-        { headers: { 'Authorization': `Bearer ${appleToken}` } }
-      ).then(res => res.json())
-    );
-
-    const resultsArray = await Promise.all(fetchPromises);
-    const uniqueSpotsMap = new Map();
-
-    resultsArray.forEach(placesData => {
-      if (placesData.results) {
-        placesData.results.forEach((poi: any) => {
-          if (poi.coordinate && poi.coordinate.latitude != null) {
-            const uniqueKey = `${poi.coordinate.latitude},${poi.coordinate.longitude}`;
-            if (!uniqueSpotsMap.has(uniqueKey)) {
-              uniqueSpotsMap.set(uniqueKey, {
-                coordinate: {
-                  latitude: poi.coordinate.latitude,
-                  longitude: poi.coordinate.longitude
-                },
-                name: poi.name || "Unknown Spot",
-                address: poi.formattedAddressLines ? poi.formattedAddressLines.join(', ') : ""
-              });
+      resultsArray.forEach(placesData => {
+        if (placesData.results) {
+          placesData.results.forEach((poi: any) => {
+            if (poi.coordinate && poi.coordinate.latitude != null) {
+              const uniqueKey = `${poi.coordinate.latitude},${poi.coordinate.longitude}`;
+              if (!uniqueSpotsMap.has(uniqueKey)) {
+                uniqueSpotsMap.set(uniqueKey, {
+                  coordinate: {
+                    latitude: poi.coordinate.latitude,
+                    longitude: poi.coordinate.longitude
+                  },
+                  name: poi.name || "Unknown Spot",
+                  address: poi.formattedAddressLines ? poi.formattedAddressLines.join(', ') : "",
+                  category: poi.poiCategory || 'Restaurant'
+                });
+              }
             }
-          }
-        });
-      }
-    });
+          });
+        }
+      });
 
-    // --- NEW: Calculate Detour Time for Each Spot ---
-    const spotsWithTime = Array.from(uniqueSpotsMap.values()).map(spot => {
-      const distToRoute = getDistanceToRoute(spot.coordinate.latitude, spot.coordinate.longitude, coords);
-      
-      // Multiply by 2 for the round-trip detour. 
-      // Divide by 666 meters (approx distance traveled in 1 minute at 25mph).
-      const addedTime = Math.max(1, Math.ceil((distToRoute * 2) / 666));
-      
-      return { ...spot, addedTime };
-    });
+      // Calculate Detour Time for Each Spot
+      const spotsWithTime = Array.from(uniqueSpotsMap.values()).map(spot => {
+        const distToRoute = getDistanceToRoute(spot.coordinate.latitude, spot.coordinate.longitude, coords);
+        const addedTime = Math.max(1, Math.ceil((distToRoute * 2) / 666));
+        return { ...spot, addedTime };
+      });
 
-    setFoodSpots(spotsWithTime);
+      setFoodSpots(spotsWithTime);
+      
+    } catch (error) {
+      console.error(error);
+    }
     
-  } catch (error) {
-    console.error(error);
-  }
-  
-  setLoading(false);
-};
+    setLoading(false);
+  };
 
   const handleSelectSuggestion = async (item: any) => {
     const displayString = item.displayLines?.join(', ') || "Unknown Location";
     setSearch(displayString);
     setSuggestions([]); 
     Keyboard.dismiss();
-    // --- NEW: Save to Recent Searches ---
+
+    // Save to Recent Searches
     const updatedRecents = [
       item, 
       ...recentSearches.filter(recent => 
-        recent.displayLines.join(', ') !== item.displayLines?.join(', ')
+        recent.displayLines?.join(', ') !== item.displayLines?.join(', ')
       )
-    ].slice(0, 5); // Keep only the last 5 searches
+    ].slice(0, 5);
     setRecentSearches(updatedRecents);
     AsyncStorage.setItem('@mapetite_recents', JSON.stringify(updatedRecents)).catch(err => console.error(err));
     setIsSearchExpanded(false);
@@ -435,7 +488,6 @@ const searchAlongCorridor = async (destLat: number, destLon: number, coords: {la
         const destLat = item.location.latitude;
         const destLon = item.location.longitude;
         
-        // Save destination so the filter can use it later
         setCurrentDestination({ latitude: destLat, longitude: destLon });
 
         setRegion({
@@ -459,7 +511,6 @@ const searchAlongCorridor = async (destLat: number, destLon: number, coords: {la
           setRouteCoords([]);
         }
 
-        // Run the extracted search function!
         await searchAlongCorridor(destLat, destLon, decodedCoords, selectedCuisines);
 
       } catch (error) {
@@ -474,9 +525,9 @@ const searchAlongCorridor = async (destLat: number, destLon: number, coords: {la
   };
 
   const clearRecentSearches = async () => {
-    setRecentSearches([]); // Clear the UI instantly
+    setRecentSearches([]);
     try {
-      await AsyncStorage.removeItem('@mapetite_recents'); // Wipe it from the phone's memory
+      await AsyncStorage.removeItem('@mapetite_recents');
     } catch (error) {
       console.error("🔴 Failed to clear recent searches:", error);
     }
@@ -484,7 +535,7 @@ const searchAlongCorridor = async (destLat: number, destLon: number, coords: {la
   
   const cuisineLabel = selectedCuisines.length > 0 ? `${selectedCuisines.length} Selected` : 'Any';
 
-  // --- NEW: Dynamic Sorting Logic ---
+  // --- Dynamic Sorting Logic ---
   const getSortedSpots = () => {
     if (foodSpots.length === 0) return [];
 
@@ -515,9 +566,34 @@ const searchAlongCorridor = async (destLat: number, destLon: number, coords: {la
           {routeCoords.length > 0 && (
             <Polyline coordinates={routeCoords} strokeColor="#007AFF" strokeWidth={5} />
           )}
-          {foodSpots.map((spot, index) => (
-            <Marker key={index} coordinate={spot.coordinate} title={spot.name} description={spot.address} />
-          ))}
+          {foodSpots.map((spot, index) => {
+            const design = getMarkerDesign(spot.category);
+            return (
+              <Marker
+                key={index}
+                coordinate={spot.coordinate}
+                onPress={() => handleSelectSpot(spot)}
+              >
+                <View style={{
+                  backgroundColor: design.color,
+                  width: 28,
+                  height: 28,
+                  borderRadius: 14,
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.4,
+                  shadowRadius: 3,
+                  elevation: 5,
+                  borderWidth: 1.5,
+                  borderColor: '#ffffff'
+                }}>
+                  <Ionicons name={design.icon as any} size={15} color="#ffffff" />
+                </View>
+              </Marker>
+            );
+          })}
         </MapView> 
       )}
 
@@ -559,8 +635,6 @@ const searchAlongCorridor = async (destLat: number, destLon: number, coords: {la
             {/* Show Recents when search bar is empty */}
             {search.length === 0 && recentSearches.length > 0 && (
               <View style={styles.dropdown}>
-                
-                {/* --- NEW: Header Row with Clear Button --- */}
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 15, paddingTop: 15, paddingBottom: 5 }}>
                   <Text style={{ color: '#aaa', fontSize: 13, fontWeight: '600' }}>
                     RECENT SEARCHES
@@ -581,7 +655,7 @@ const searchAlongCorridor = async (destLat: number, destLon: number, coords: {la
                       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                         <Ionicons name="time-outline" size={18} color="#aaa" style={{ marginRight: 10 }} />
                         <Text style={styles.suggestionText} numberOfLines={1}>
-                          {item.displayLines.join(', ')}
+                          {item.displayLines?.join(', ')}
                         </Text>
                       </View>
                     </TouchableOpacity>
@@ -600,7 +674,7 @@ const searchAlongCorridor = async (destLat: number, destLon: number, coords: {la
                   renderItem={({ item }) => (
                     <TouchableOpacity style={styles.suggestionItem} onPress={() => handleSelectSuggestion(item)}>
                       <Text style={styles.suggestionText} numberOfLines={1}>
-                        {item.displayLines.join(', ')}
+                        {item.displayLines?.join(', ')}
                       </Text>
                     </TouchableOpacity>
                   )}
@@ -646,10 +720,8 @@ const searchAlongCorridor = async (destLat: number, destLon: number, coords: {la
               </View>
             )}
 
-            {/* --- NEW: Sorting Toggle & List --- */}
+            {/* Sorting Toggle & List */}
             <View style={styles.listWrapper}>
-              
-              {/* The Toggle Header */}
               {foodSpots.length > 0 && (
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, paddingHorizontal: 5 }}>
                   <Text style={{ color: '#aaa', fontSize: 14, fontWeight: '500' }}>
@@ -675,28 +747,27 @@ const searchAlongCorridor = async (destLat: number, destLon: number, coords: {la
                   contentContainerStyle={{ paddingBottom: 20 }}
                   showsVerticalScrollIndicator={false}
                   renderItem={({ item, index }) => (
-                    <View style={styles.spotCard}>
+                    <TouchableOpacity 
+                      style={styles.spotCard} 
+                      onPress={() => handleSelectSpot(item)}
+                      activeOpacity={0.7}
+                    >
                       <View style={styles.spotInfo}>
-                        
-                        {/* Highlight the Top Result */}
                         {index === 0 && (
                           <Text style={{ color: '#32d74b', fontSize: 11, fontWeight: 'bold', marginBottom: 4, letterSpacing: 1 }}>
                             FASTEST ALONG ROUTE
                           </Text>
                         )}
-                        
                         <Text style={styles.spotName} numberOfLines={1}>{item.name}</Text>
                         <Text style={styles.spotAddress} numberOfLines={2}>{item.address}</Text>
                       </View>
-                      
-                      {/* Show the Detour Time */}
                       <View style={{ alignItems: 'flex-end', marginLeft: 10 }}>
-                         <Text style={{ color: '#fff', fontSize: 16, fontWeight: 'bold' }}>
-                           +{item.addedTime}
-                         </Text>
-                         <Text style={{ color: '#aaa', fontSize: 12 }}>min</Text>
+                        <Text style={{ color: '#fff', fontSize: 16, fontWeight: 'bold' }}>
+                          +{item.addedTime}
+                        </Text>
+                        <Text style={{ color: '#aaa', fontSize: 12 }}>min</Text>
                       </View>
-                    </View>
+                    </TouchableOpacity>
                   )}
                 />
               )}
@@ -704,6 +775,103 @@ const searchAlongCorridor = async (destLat: number, destLon: number, coords: {la
           </View>
         </Animated.View>
       </Animated.View>
+
+      {/* --- RICH SPOT DETAILS PANEL --- */}
+      {selectedSpot && (
+        <View style={styles.detailsOverlay}>
+          <ScrollView contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
+            {/* Header */}
+            <View style={styles.detailsHeader}>
+              <View style={{ flex: 1, paddingRight: 10 }}>
+                <Text style={styles.detailsTitle}>{selectedSpot.name}</Text>
+                <Text style={styles.detailsSubtitle}>{selectedSpot.address}</Text>
+              </View>
+              <TouchableOpacity 
+                onPress={() => setSelectedSpot(null)} 
+                style={styles.detailsCloseBtn}
+              >
+                <Ionicons name="close" size={22} color="#fff" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Navigation Actions */}
+            <View style={styles.actionRow}>
+              <TouchableOpacity 
+                style={[styles.navBtn, { backgroundColor: '#0a84ff' }]}
+                onPress={() => openInAppleMaps(selectedSpot.coordinate.latitude, selectedSpot.coordinate.longitude, selectedSpot.name)}
+              >
+                <Ionicons name="navigate" size={18} color="#fff" />
+                <Text style={styles.navBtnText}>Apple Maps</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.navBtn, { backgroundColor: '#34a853' }]}
+                onPress={() => openInGoogleMaps(selectedSpot.coordinate.latitude, selectedSpot.coordinate.longitude)}
+              >
+                <Ionicons name="map" size={18} color="#fff" />
+                <Text style={styles.navBtnText}>Google Maps</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Google Places Live Data */}
+            {loadingDetails ? (
+              <View style={styles.loaderBox}>
+                <ActivityIndicator size="small" color="#0a84ff" />
+                <Text style={{ color: '#aaa', marginTop: 8, fontSize: 13 }}>Fetching ratings & photos...</Text>
+              </View>
+            ) : spotDetails ? (
+              <View>
+                {/* Meta Badges */}
+                <View style={styles.metaRow}>
+                  {spotDetails.rating && (
+                    <View style={styles.badge}>
+                      <Ionicons name="star" size={14} color="#ffd60a" style={{ marginRight: 4 }} />
+                      <Text style={styles.badgeText}>{spotDetails.rating} ({spotDetails.userRatingCount})</Text>
+                    </View>
+                  )}
+                  {spotDetails.isOpenNow !== null && (
+                    <View style={[styles.badge, { backgroundColor: spotDetails.isOpenNow ? 'rgba(50, 215, 75, 0.15)' : 'rgba(255, 69, 58, 0.15)' }]}>
+                      <Text style={{ color: spotDetails.isOpenNow ? '#32d74b' : '#ff453a', fontWeight: '600', fontSize: 13 }}>
+                        {spotDetails.isOpenNow ? 'Open Now' : 'Closed'}
+                      </Text>
+                    </View>
+                  )}
+                  {spotDetails.priceLevel && (
+                    <View style={styles.badge}>
+                      <Text style={styles.badgeText}>{spotDetails.priceLevel.replace('PRICE_LEVEL_', '')}</Text>
+                    </View>
+                  )}
+                </View>
+
+                {/* Photo Carousel */}
+                {spotDetails.photos && spotDetails.photos.length > 0 && (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photoCarousel}>
+                    {spotDetails.photos.map((uri: string, idx: number) => (
+                      <Image key={idx} source={{ uri }} style={styles.placePhoto} />
+                    ))}
+                  </ScrollView>
+                )}
+
+                {/* Reviews */}
+                {spotDetails.reviews && spotDetails.reviews.length > 0 && (
+                  <View style={{ marginTop: 15 }}>
+                    <Text style={styles.sectionHeader}>Reviews</Text>
+                    {spotDetails.reviews.map((rev: any, idx: number) => (
+                      <View key={idx} style={styles.reviewCard}>
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                          <Text style={{ color: '#fff', fontWeight: '600', fontSize: 13 }}>{rev.author}</Text>
+                          <Text style={{ color: '#ffd60a', fontSize: 12 }}>★ {rev.rating}</Text>
+                        </View>
+                        <Text style={{ color: '#ccc', fontSize: 13 }} numberOfLines={3}>{rev.text}</Text>
+                      </View>
+                    ))}
+                  </View>
+                )}
+              </View>
+            ) : null}
+          </ScrollView>
+        </View>
+      )}
     </View>
   );
 }
@@ -745,5 +913,109 @@ const styles = StyleSheet.create({
   spotAddress: { color: '#aaa', fontSize: 13 },
   placeholderContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingBottom: 20 },
   placeholderIcon: { marginBottom: 15 },
-  placeholderText: { color: '#aaa', fontSize: 16, fontWeight: '500' }
+  placeholderText: { color: '#aaa', fontSize: 16, fontWeight: '500' },
+  detailsOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    maxHeight: '75%',
+    backgroundColor: '#1c1c1e',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -5 },
+    shadowOpacity: 0.6,
+    shadowRadius: 12,
+    elevation: 25,
+    zIndex: 200,
+  },
+  detailsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  detailsTitle: {
+    color: '#ffffff',
+    fontSize: 22,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  detailsSubtitle: {
+    color: '#8e8e93',
+    fontSize: 14,
+  },
+  detailsCloseBtn: {
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    padding: 6,
+    borderRadius: 16,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  navBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  navBtnText: {
+    color: '#ffffff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  loaderBox: {
+    padding: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  metaRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 16,
+  },
+  badge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  badgeText: {
+    color: '#ffffff',
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  photoCarousel: {
+    marginHorizontal: -20,
+    paddingHorizontal: 20,
+    marginBottom: 10,
+  },
+  placePhoto: {
+    width: 200,
+    height: 130,
+    borderRadius: 12,
+    marginRight: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  sectionHeader: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 10,
+  },
+  reviewCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 8,
+  },
 });
