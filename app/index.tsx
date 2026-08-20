@@ -14,6 +14,7 @@ import {
   PanResponder,
   Platform,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -79,6 +80,17 @@ const getDistanceInMeters = (lat1: number, lon1: number, lat2: number, lon2: num
   return R * c;
 };
 
+// --- DETOUR CALCULATOR ---
+const getDistanceToRoute = (spotLat: number, spotLon: number, routeCoords: any[]) => {
+  let minDistance = Infinity;
+  // Find the closest coordinate on the blue line to this restaurant
+  for (let i = 0; i < routeCoords.length; i++) {
+    const dist = getDistanceInMeters(spotLat, spotLon, routeCoords[i].latitude, routeCoords[i].longitude);
+    if (dist < minDistance) minDistance = dist;
+  }
+  return minDistance; // Returns the one-way distance to the route in meters
+};
+
 export default function App() {
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
@@ -103,6 +115,8 @@ export default function App() {
   const [isCuisineOpen, setIsCuisineOpen] = useState(false);
 
   const [appleToken, setAppleToken] = useState<string | null>(null);
+
+  const [isSortByTime, isSortByTimeSet] = useState(false);
   
   useEffect(() => {
     async function fetchAppleToken() {
@@ -298,87 +312,100 @@ export default function App() {
     }
   };
 
-  // --- NEW: Reusable function to fetch spots along a route ---
-  const searchAlongCorridor = async (destLat: number, destLon: number, coords: {latitude: number, longitude: number}[], targetCuisines: string[]) => {
-    if (!appleToken) return;
-    setLoading(true);
+// --- NEW: Reusable function to fetch spots along a route ---
+const searchAlongCorridor = async (destLat: number, destLon: number, coords: {latitude: number, longitude: number}[], targetCuisines: string[]) => {
+  if (!appleToken) return;
+  setLoading(true);
 
-    const categoriesQuery = targetCuisines.length > 0 ? targetCuisines.join(',') : 'Restaurant';
-    const breadcrumbs = [];
+  const categoriesQuery = targetCuisines.length > 0 ? targetCuisines.join(',') : 'Restaurant';
+  const breadcrumbs = [];
 
-    if (coords.length > 0) {
-      let totalDistance = 0;
-      const cumulativeDistances = [0]; 
-      
-      for (let i = 1; i < coords.length; i++) {
-        const dist = getDistanceInMeters(
-          coords[i-1].latitude, coords[i-1].longitude,
-          coords[i].latitude, coords[i].longitude
-        );
-        totalDistance += dist;
-        cumulativeDistances.push(totalDistance);
-      }
-
-      const totalDistanceInMiles = totalDistance / 1609.34;
-      let intervalPercentage;
-      if (totalDistanceInMiles <= 4) intervalPercentage = 0.30; 
-      else if (totalDistanceInMiles <= 10) intervalPercentage = 0.20; 
-      else intervalPercentage = 0.10; 
-
-      const dynamicInterval = totalDistance * intervalPercentage;
-
-      breadcrumbs.push(coords[0]); 
-      let nextTarget = dynamicInterval;
-      for (let i = 1; i < coords.length; i++) {
-        if (cumulativeDistances[i] >= nextTarget) {
-          breadcrumbs.push(coords[i]);
-          nextTarget += dynamicInterval; 
-        }
-      }
-      breadcrumbs.push({ latitude: destLat, longitude: destLon });
-    } else {
-      breadcrumbs.push({ latitude: destLat, longitude: destLon });
-    }
-
-    const safeBreadcrumbs = breadcrumbs.slice(0, 15);
-
-    try {
-      const fetchPromises = safeBreadcrumbs.map(point => 
-        fetch(
-          `https://maps-api.apple.com/v1/search?q=${categoriesQuery}&searchLocation=${point.latitude},${point.longitude}&resultTypeFilter=Poi`,
-          { headers: { 'Authorization': `Bearer ${appleToken}` } }
-        ).then(res => res.json())
-      );
-
-      const resultsArray = await Promise.all(fetchPromises);
-      const uniqueSpotsMap = new Map();
-
-      resultsArray.forEach(placesData => {
-        if (placesData.results) {
-          placesData.results.forEach((poi: any) => {
-            if (poi.coordinate && poi.coordinate.latitude != null) {
-              const uniqueKey = `${poi.coordinate.latitude},${poi.coordinate.longitude}`;
-              if (!uniqueSpotsMap.has(uniqueKey)) {
-                uniqueSpotsMap.set(uniqueKey, {
-                  coordinate: {
-                    latitude: poi.coordinate.latitude,
-                    longitude: poi.coordinate.longitude
-                  },
-                  name: poi.name || "Unknown Spot",
-                  address: poi.formattedAddressLines ? poi.formattedAddressLines.join(', ') : ""
-                });
-              }
-            }
-          });
-        }
-      });
-      setFoodSpots(Array.from(uniqueSpotsMap.values()));
-    } catch (error) {
-      console.error(error);
-    }
+  if (coords.length > 0) {
+    let totalDistance = 0;
+    const cumulativeDistances = [0]; 
     
-    setLoading(false);
-  };
+    for (let i = 1; i < coords.length; i++) {
+      const dist = getDistanceInMeters(
+        coords[i-1].latitude, coords[i-1].longitude,
+        coords[i].latitude, coords[i].longitude
+      );
+      totalDistance += dist;
+      cumulativeDistances.push(totalDistance);
+    }
+
+    const totalDistanceInMiles = totalDistance / 1609.34;
+    let intervalPercentage;
+    if (totalDistanceInMiles <= 4) intervalPercentage = 0.30; 
+    else if (totalDistanceInMiles <= 10) intervalPercentage = 0.20; 
+    else intervalPercentage = 0.10; 
+
+    const dynamicInterval = totalDistance * intervalPercentage;
+
+    breadcrumbs.push(coords[0]); 
+    let nextTarget = dynamicInterval;
+    for (let i = 1; i < coords.length; i++) {
+      if (cumulativeDistances[i] >= nextTarget) {
+        breadcrumbs.push(coords[i]);
+        nextTarget += dynamicInterval; 
+      }
+    }
+    breadcrumbs.push({ latitude: destLat, longitude: destLon });
+  } else {
+    breadcrumbs.push({ latitude: destLat, longitude: destLon });
+  }
+
+  const safeBreadcrumbs = breadcrumbs.slice(0, 15);
+
+  try {
+    const fetchPromises = safeBreadcrumbs.map(point => 
+      fetch(
+        `https://maps-api.apple.com/v1/search?q=${categoriesQuery}&searchLocation=${point.latitude},${point.longitude}&resultTypeFilter=Poi`,
+        { headers: { 'Authorization': `Bearer ${appleToken}` } }
+      ).then(res => res.json())
+    );
+
+    const resultsArray = await Promise.all(fetchPromises);
+    const uniqueSpotsMap = new Map();
+
+    resultsArray.forEach(placesData => {
+      if (placesData.results) {
+        placesData.results.forEach((poi: any) => {
+          if (poi.coordinate && poi.coordinate.latitude != null) {
+            const uniqueKey = `${poi.coordinate.latitude},${poi.coordinate.longitude}`;
+            if (!uniqueSpotsMap.has(uniqueKey)) {
+              uniqueSpotsMap.set(uniqueKey, {
+                coordinate: {
+                  latitude: poi.coordinate.latitude,
+                  longitude: poi.coordinate.longitude
+                },
+                name: poi.name || "Unknown Spot",
+                address: poi.formattedAddressLines ? poi.formattedAddressLines.join(', ') : ""
+              });
+            }
+          }
+        });
+      }
+    });
+
+    // --- NEW: Calculate Detour Time for Each Spot ---
+    const spotsWithTime = Array.from(uniqueSpotsMap.values()).map(spot => {
+      const distToRoute = getDistanceToRoute(spot.coordinate.latitude, spot.coordinate.longitude, coords);
+      
+      // Multiply by 2 for the round-trip detour. 
+      // Divide by 666 meters (approx distance traveled in 1 minute at 25mph).
+      const addedTime = Math.max(1, Math.ceil((distToRoute * 2) / 666));
+      
+      return { ...spot, addedTime };
+    });
+
+    setFoodSpots(spotsWithTime);
+    
+  } catch (error) {
+    console.error(error);
+  }
+  
+  setLoading(false);
+};
 
   const handleSelectSuggestion = async (item: any) => {
     const displayString = item.displayLines?.join(', ') || "Unknown Location";
@@ -456,6 +483,30 @@ export default function App() {
   };
   
   const cuisineLabel = selectedCuisines.length > 0 ? `${selectedCuisines.length} Selected` : 'Any';
+
+  // --- NEW: Dynamic Sorting Logic ---
+  const getSortedSpots = () => {
+    if (foodSpots.length === 0) return [];
+
+    let spotsCopy = [...foodSpots];
+
+    let fastestIndex = 0;
+    for (let i = 1; i < spotsCopy.length; i++) {
+      if (spotsCopy[i].addedTime < spotsCopy[fastestIndex].addedTime) {
+        fastestIndex = i;
+      }
+    }
+
+    const fastestSpot = spotsCopy.splice(fastestIndex, 1)[0];
+
+    if (isSortByTime) {
+      spotsCopy.sort((a, b) => a.addedTime - b.addedTime);
+    }
+
+    return [fastestSpot, ...spotsCopy];
+  };
+
+  const sortedSpots = getSortedSpots();
 
   return (
     <View style={styles.container}>
@@ -595,7 +646,23 @@ export default function App() {
               </View>
             )}
 
+            {/* --- NEW: Sorting Toggle & List --- */}
             <View style={styles.listWrapper}>
+              
+              {/* The Toggle Header */}
+              {foodSpots.length > 0 && (
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15, paddingHorizontal: 5 }}>
+                  <Text style={{ color: '#aaa', fontSize: 14, fontWeight: '500' }}>
+                    Sort all by least detour time
+                  </Text>
+                  <Switch 
+                    value={isSortByTime} 
+                    onValueChange={isSortByTimeSet} 
+                    trackColor={{ false: '#333', true: '#0a84ff' }}
+                  />
+                </View>
+              )}
+
               {foodSpots.length === 0 ? (
                 <View style={styles.placeholderContainer}>
                   <Ionicons name="restaurant-outline" size={36} color="#aaa" style={styles.placeholderIcon} />
@@ -603,14 +670,32 @@ export default function App() {
                 </View>
               ) : (
                 <FlatList
-                  data={foodSpots} keyExtractor={(item, index) => index.toString()} contentContainerStyle={{ paddingBottom: 20 }} showsVerticalScrollIndicator={false}
-                  renderItem={({ item }) => (
+                  data={sortedSpots} 
+                  keyExtractor={(item, index) => index.toString()}
+                  contentContainerStyle={{ paddingBottom: 20 }}
+                  showsVerticalScrollIndicator={false}
+                  renderItem={({ item, index }) => (
                     <View style={styles.spotCard}>
                       <View style={styles.spotInfo}>
+                        
+                        {/* Highlight the Top Result */}
+                        {index === 0 && (
+                          <Text style={{ color: '#32d74b', fontSize: 11, fontWeight: 'bold', marginBottom: 4, letterSpacing: 1 }}>
+                            FASTEST ALONG ROUTE
+                          </Text>
+                        )}
+                        
                         <Text style={styles.spotName} numberOfLines={1}>{item.name}</Text>
                         <Text style={styles.spotAddress} numberOfLines={2}>{item.address}</Text>
                       </View>
-                      <Ionicons name="chevron-forward" size={20} color="#666" />
+                      
+                      {/* Show the Detour Time */}
+                      <View style={{ alignItems: 'flex-end', marginLeft: 10 }}>
+                         <Text style={{ color: '#fff', fontSize: 16, fontWeight: 'bold' }}>
+                           +{item.addedTime}
+                         </Text>
+                         <Text style={{ color: '#aaa', fontSize: 12 }}>min</Text>
+                      </View>
                     </View>
                   )}
                 />
