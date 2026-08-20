@@ -1,4 +1,5 @@
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BlurView } from 'expo-blur';
 import * as Location from 'expo-location';
 import React, { useEffect, useRef, useState } from 'react';
@@ -91,6 +92,7 @@ export default function App() {
     longitudeDelta: number;
   } | undefined>(undefined);
 
+  const [recentSearches, setRecentSearches] = useState<any[]>([]);
   // --- NEW: Track the current destination for active filtering ---
   const [currentDestination, setCurrentDestination] = useState<{latitude: number, longitude: number} | null>(null);
 
@@ -115,6 +117,21 @@ export default function App() {
       }
     }
     fetchAppleToken();
+  }, []);
+
+  // --- NEW: Load Recent Searches ---
+  useEffect(() => {
+    async function loadRecentSearches() {
+      try {
+        const storedSearches = await AsyncStorage.getItem('@mapetite_recents');
+        if (storedSearches) {
+          setRecentSearches(JSON.parse(storedSearches));
+        }
+      } catch (error) {
+        console.error("🔴 Failed to load recent searches:", error);
+      }
+    }
+    loadRecentSearches();
   }, []);
 
   const searchAnim = useRef(new Animated.Value(0)).current;  
@@ -368,6 +385,15 @@ export default function App() {
     setSearch(displayString);
     setSuggestions([]); 
     Keyboard.dismiss();
+    // --- NEW: Save to Recent Searches ---
+    const updatedRecents = [
+      item, 
+      ...recentSearches.filter(recent => 
+        recent.displayLines.join(', ') !== item.displayLines?.join(', ')
+      )
+    ].slice(0, 5); // Keep only the last 5 searches
+    setRecentSearches(updatedRecents);
+    AsyncStorage.setItem('@mapetite_recents', JSON.stringify(updatedRecents)).catch(err => console.error(err));
     setIsSearchExpanded(false);
 
     Animated.sequence([
@@ -420,6 +446,15 @@ export default function App() {
     });
   };
 
+  const clearRecentSearches = async () => {
+    setRecentSearches([]); // Clear the UI instantly
+    try {
+      await AsyncStorage.removeItem('@mapetite_recents'); // Wipe it from the phone's memory
+    } catch (error) {
+      console.error("🔴 Failed to clear recent searches:", error);
+    }
+  };
+  
   const cuisineLabel = selectedCuisines.length > 0 ? `${selectedCuisines.length} Selected` : 'Any';
 
   return (
@@ -469,18 +504,59 @@ export default function App() {
             </TouchableOpacity>
           </View>
           <View style={styles.hiddenContent}>
-            {suggestions.length > 0 && ( 
+            
+            {/* Show Recents when search bar is empty */}
+            {search.length === 0 && recentSearches.length > 0 && (
               <View style={styles.dropdown}>
+                
+                {/* --- NEW: Header Row with Clear Button --- */}
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 15, paddingTop: 15, paddingBottom: 5 }}>
+                  <Text style={{ color: '#aaa', fontSize: 13, fontWeight: '600' }}>
+                    RECENT SEARCHES
+                  </Text>
+                  <TouchableOpacity onPress={clearRecentSearches}>
+                    <Text style={{ color: '#0a84ff', fontSize: 13, fontWeight: '500' }}>
+                      Clear
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
                 <FlatList
-                  data={suggestions} keyExtractor={(item, index) => index.toString()} keyboardShouldPersistTaps="handled"
+                  data={recentSearches}
+                  keyExtractor={(item, index) => 'recent-' + index.toString()}
+                  keyboardShouldPersistTaps="handled"
                   renderItem={({ item }) => (
                     <TouchableOpacity style={styles.suggestionItem} onPress={() => handleSelectSuggestion(item)}>
-                      <Text style={styles.suggestionText} numberOfLines={1}>{item.displayLines.join(', ')}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Ionicons name="time-outline" size={18} color="#aaa" style={{ marginRight: 10 }} />
+                        <Text style={styles.suggestionText} numberOfLines={1}>
+                          {item.displayLines.join(', ')}
+                        </Text>
+                      </View>
                     </TouchableOpacity>
                   )}
                 />
               </View>
             )}
+
+            {/* Show Autocomplete when typing */}
+            {suggestions.length > 0 && search.length > 0 && ( 
+              <View style={styles.dropdown}>
+                <FlatList
+                  data={suggestions}
+                  keyExtractor={(item, index) => 'suggestion-' + index.toString()}
+                  keyboardShouldPersistTaps="handled"
+                  renderItem={({ item }) => (
+                    <TouchableOpacity style={styles.suggestionItem} onPress={() => handleSelectSuggestion(item)}>
+                      <Text style={styles.suggestionText} numberOfLines={1}>
+                        {item.displayLines.join(', ')}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                />
+              </View>
+            )}
+
           </View>
         </Animated.View>
 
