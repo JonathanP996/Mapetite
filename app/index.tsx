@@ -108,6 +108,18 @@ const getMarkerDesign = (category: string) => {
   }
 };
 
+// --- PARSE TODAY'S HOURS ---
+const getTodaysHours = (descriptions: string[]) => {
+  if (!descriptions || descriptions.length === 0) return 'Hours unavailable';
+  
+  const jsDay = new Date().getDay(); // 0 = Sun, 1 = Mon
+  const googleDay = (jsDay + 6) % 7; // Google: 0 = Mon, 6 = Sun
+  
+  const todayString = descriptions[googleDay];
+  // Splits "Monday: 9:00 AM – 10:00 PM" and returns just the time
+  return todayString ? todayString.split(': ')[1] : 'Hours unavailable';
+};
+
 export default function App() {
   const [selectedSpot, setSelectedSpot] = useState<any | null>(null);
   const [spotDetails, setSpotDetails] = useState<any | null>(null);
@@ -136,6 +148,8 @@ export default function App() {
 
   const [appleToken, setAppleToken] = useState<string | null>(null);
   const [isSortByTime, isSortByTimeSet] = useState(false);
+
+  const [showHours, setShowHours] = useState(false);
   
   useEffect(() => {
     async function fetchAppleToken() {
@@ -239,6 +253,7 @@ export default function App() {
     setSelectedSpot(spot);
     setSpotDetails(null);
     setLoadingDetails(true);
+    setShowHours(false);
 
     try {
       const url = `https://mapetite-server.vercel.app/api/place-details?name=${encodeURIComponent(spot.name)}&lat=${spot.coordinate.latitude}&lng=${spot.coordinate.longitude}&address=${encodeURIComponent(spot.address || '')}`;
@@ -829,12 +844,21 @@ export default function App() {
                       <Text style={styles.badgeText}>{spotDetails.rating} ({spotDetails.userRatingCount})</Text>
                     </View>
                   )}
-                  {spotDetails.isOpenNow !== null && (
-                    <View style={[styles.badge, { backgroundColor: spotDetails.isOpenNow ? 'rgba(50, 215, 75, 0.15)' : 'rgba(255, 69, 58, 0.15)' }]}>
+                {spotDetails.isOpenNow !== null && (
+                    <TouchableOpacity 
+                      activeOpacity={0.7}
+                      onPress={() => {
+                        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                        setShowHours(!showHours);
+                      }}
+                      style={[styles.badge, { backgroundColor: spotDetails.isOpenNow ? 'rgba(50, 215, 75, 0.15)' : 'rgba(255, 69, 58, 0.15)' }]}
+                    >
                       <Text style={{ color: spotDetails.isOpenNow ? '#32d74b' : '#ff453a', fontWeight: '600', fontSize: 13 }}>
-                        {spotDetails.isOpenNow ? 'Open Now' : 'Closed'}
+                        {showHours 
+                          ? getTodaysHours(spotDetails.weekdayDescriptions)
+                          : (spotDetails.isOpenNow ? 'Open Now' : 'Closed')}
                       </Text>
-                    </View>
+                    </TouchableOpacity>
                   )}
                   {spotDetails.priceLevel && (
                     <View style={styles.badge}>
